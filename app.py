@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 from flask import Response
 from flask_cors import CORS
+from ahp_routes import ahp_bp
 import pymysql
 import json
 
@@ -10,6 +11,8 @@ pymysql.install_as_MySQLdb()
 
 app = Flask(__name__, static_folder='build/static', template_folder='build')
 CORS(app)
+app.register_blueprint(ahp_bp)
+
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:123456@localhost/decisions_db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
