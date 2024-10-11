@@ -1,37 +1,23 @@
 from flask import Flask, request, jsonify, render_template
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
 from flask import Response
 from flask_cors import CORS
 from ahp_routes import ahp_bp
+from ChecklistDecision import checklist_bp
 import pymysql
 import json
+
+from shared_models import db,Answer, Decision
 
 pymysql.install_as_MySQLdb()
 
 app = Flask(__name__, static_folder='build/static', template_folder='build')
 CORS(app)
+app.config.from_pyfile('config.py')
+db.init_app(app)
 app.register_blueprint(ahp_bp)
+app.register_blueprint(checklist_bp)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:123456@localhost/decisions_db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
 
-# Database Model
-class Decision(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, nullable=False)
-    decision_name = db.Column(db.String(100), nullable=False)
-    final_decision = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    answers = db.relationship('Answer', backref='decision', lazy=True)
-
-class Answer(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    decision_id = db.Column(db.Integer, db.ForeignKey('decision.id'), nullable=False)
-    module = db.Column(db.String(50), nullable=False)
-    question = db.Column(db.String(200), nullable=False)
-    answer = db.Column(db.Text, nullable=False)
 
 @app.route('/')
 def index():
