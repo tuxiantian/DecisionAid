@@ -34,11 +34,31 @@ def create_checklist():
 @checklist_bp.route('/checklists/<int:checklist_id>', methods=['GET'])
 def get_checklist_details(checklist_id):
     checklist = Checklist.query.get_or_404(checklist_id)
-    # Get all versions of the checklist
-    versions = Checklist.query.filter_by(parent_id=checklist.parent_id if checklist.parent_id else checklist.id).all()
+    
+    # 获取所有相关版本的 Checklist，包括当前 Checklist
+    if checklist.parent_id:
+        versions = Checklist.query.filter(
+            (Checklist.parent_id == checklist.parent_id) | (Checklist.id == checklist.parent_id)
+        ).order_by(Checklist.version).all()
+    else:
+        versions = Checklist.query.filter(
+            (Checklist.parent_id == checklist.id) | (Checklist.id == checklist.id)
+        ).order_by(Checklist.version).all()
+
     questions = ChecklistQuestion.query.filter_by(checklist_id=checklist.id).all()
     questions_data = [{'id': question.id, 'question': question.question} for question in questions]
-    return jsonify({'questions': questions_data, 'versions': [{'id': version.id, 'version': version.version} for version in versions]}), 200
+
+    versions_data = [{'id': version.id, 'version': version.version} for version in versions]
+
+    return jsonify({
+        'id': checklist.id,
+        'name': checklist.name,
+        'description': checklist.description,
+        'version': checklist.version,
+        'questions': questions_data,
+        'versions': versions_data
+    }), 200
+
 
 @checklist_bp.route('/save_checklist_answers', methods=['POST'])
 def save_checklist_answers():
@@ -125,3 +145,32 @@ def delete_checklist_decision(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+    
+@checklist_bp.route('/checklists/<int:id>', methods=['PUT'])
+def update_checklist(id):
+    data = request.get_json()
+    checklist = Checklist.query.get(id)
+    if checklist is None:
+        abort(404, description="Checklist not found")
+
+    new_checklist = Checklist(
+        name=checklist.name,
+        description=data.get('description', checklist.description),
+        user_id=checklist.user_id,
+        version=checklist.version+1,
+        parent_id=id
+    )
+    db.session.add(new_checklist)
+    db.session.flush()  # Get new checklist id before commit
+
+    for question_text in data.get('questions', []):
+        new_question = ChecklistQuestion(checklist_id=new_checklist.id, question=question_text)
+        db.session.add(new_question)
+
+
+    try:
+        db.session.commit()
+        return jsonify({'message': 'Checklist updated successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500    
