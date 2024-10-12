@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, Blueprint
+from flask import Flask, abort, request, jsonify, Blueprint
 from shared_models import Checklist, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
 
 checklist_bp = Blueprint('checklist', __name__)
@@ -108,3 +108,20 @@ def get_checklist_decision_details(user_id, decision_id):
         'answers': answers_data
     }
     return jsonify(decision_details), 200
+
+@checklist_bp.route('/checklist_answers/<int:id>', methods=['DELETE'])
+def delete_checklist_decision(id):
+    decision = ChecklistDecision.query.get(id)
+    if decision is None:
+        abort(404, description="Decision not found")
+
+    try:
+        # First, delete all checklist answers associated with the decision
+        ChecklistAnswer.query.filter_by(checklist_decision_id=id).delete()
+        # Then, delete the checklist decision itself
+        db.session.delete(decision)
+        db.session.commit()
+        return jsonify({'message': 'Decision and associated answers deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
