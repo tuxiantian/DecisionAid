@@ -5,9 +5,41 @@ checklist_bp = Blueprint('checklist', __name__)
 
 @checklist_bp.route('/checklists', methods=['GET'])
 def get_checklists():
-    checklists = Checklist.query.filter_by(parent_id=None).all()
-    checklist_data = [{'id': checklist.id, 'name': checklist.name, 'description': checklist.description, 'version': checklist.version} for checklist in checklists]
+    # 获取所有 Checklist，按名字升序和版本降序排列
+    all_checklists = Checklist.query.order_by(Checklist.name, Checklist.version.desc()).all()
+
+    # 构造checklist数据
+    checklist_data = []
+    checklist_map = {}
+
+    # 遍历所有版本的 Checklist
+    for checklist in all_checklists:
+        if checklist.name not in checklist_map:
+            # 如果是最新版本，则允许更新
+            checklist_map[checklist.name] = {
+                'id': checklist.id,
+                'name': checklist.name,
+                'description': checklist.description,
+                'version': checklist.version,
+                'can_update': True  # 只有最新版本能更新
+            }
+        else:
+            # 对于旧版本，不允许更新
+            checklist_map[checklist.name]['versions'] = checklist_map[checklist.name].get('versions', []) + [{
+                'id': checklist.id,
+                'name': checklist.name,
+                'version': checklist.version,
+                'description': checklist.description,
+                'can_update': False
+            }]
+
+    # 将数据转换为列表
+    for checklist in checklist_map.values():
+        checklist_data.append(checklist)
+
     return jsonify(checklist_data), 200
+
+
 
 @checklist_bp.route('/checklists', methods=['POST'])
 def create_checklist():
