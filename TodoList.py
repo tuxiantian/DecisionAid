@@ -91,3 +91,32 @@ def delete_todo(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'An error occurred while deleting the todo'}), 500
+    
+@todolist_bp.route('/todos/completed', methods=['GET'])
+def get_completed_todos():
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 10, type=int)
+    
+    # 使用分页获取已完成的待办事项，按更新时间倒序排列
+    completed_todos_query = TodoItem.query.filter_by(status='completed').order_by(TodoItem.updated_at.desc())
+    
+    # 实现分页
+    pagination = completed_todos_query.paginate(page=page,
+        per_page=page_size,
+        error_out=False)
+
+    results = [{
+        'id': todo.id,
+        'name': todo.name,
+        'start_time': todo.start_time,
+        'end_time': todo.end_time,
+        'importance': todo.importance,
+        'urgency': todo.urgency,
+        'updated_at': todo.updated_at
+    } for todo in pagination.items]
+
+    return jsonify({
+        'todos': results,
+        'total_pages': pagination.pages,
+        'current_page': pagination.page
+    }), 200
