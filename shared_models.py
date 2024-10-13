@@ -3,6 +3,18 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
+class TodoItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    type = db.Column(db.Enum('today', 'this_week', 'this_month', 'custom'), nullable=False)
+    status = db.Column(db.Enum('not_started', 'in_progress', 'completed', 'ended'), default='not_started')
+    start_time = db.Column(db.DateTime)
+    end_time = db.Column(db.DateTime)
+    importance = db.Column(db.Boolean, default=False)
+    urgency = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=dt.utcnow)
+    updated_at = db.Column(db.DateTime, default=dt.utcnow, onupdate=dt.utcnow)
+
 class Checklist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     version = db.Column(db.Integer, nullable=False, default=1)
