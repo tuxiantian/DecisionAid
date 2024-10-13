@@ -77,3 +77,17 @@ def update_todo_status(id):
     db.session.commit()
 
     return jsonify({'message': 'Todo status updated successfully'}), 200
+
+@todolist_bp.route('/todos/<int:id>', methods=['DELETE'])
+def delete_todo(id):
+    todo = TodoItem.query.get(id)
+    if not todo:
+        return jsonify({'error': 'Todo not found'}), 404
+
+    try:
+        db.session.delete(todo)
+        db.session.commit()
+        return jsonify({'message': 'Todo deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'An error occurred while deleting the todo'}), 500
