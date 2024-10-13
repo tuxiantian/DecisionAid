@@ -4,6 +4,7 @@ from flask_cors import CORS
 from ahp_routes import ahp_bp
 from ChecklistDecision import checklist_bp
 from TodoList import todolist_bp
+from article import article_bp
 import pymysql
 import json
 
@@ -18,7 +19,7 @@ db.init_app(app)
 app.register_blueprint(ahp_bp)
 app.register_blueprint(checklist_bp)
 app.register_blueprint(todolist_bp)
-
+app.register_blueprint(article_bp)
 
 
 @app.route('/')

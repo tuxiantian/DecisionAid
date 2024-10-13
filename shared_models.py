@@ -3,6 +3,17 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
+class Article(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    author = db.Column(db.String(255), nullable=False)
+    tags = db.Column(db.String(255), nullable=True)
+    keywords = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=dt.utcnow)
+    updated_at = db.Column(db.DateTime, default=dt.utcnow, onupdate=dt.utcnow)
+
+
 class TodoItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
