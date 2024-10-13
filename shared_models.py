@@ -70,3 +70,12 @@ class Answer(db.Model):
     module = db.Column(db.String(50), nullable=False)
     question = db.Column(db.String(200), nullable=False)
     answer = db.Column(db.Text, nullable=False)
+
+# Review 数据模型
+class Review(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    decision_id = db.Column(db.Integer, db.ForeignKey('checklist_decision.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    referenced_articles = db.Column(db.String(255))  # 保存引用的文章 ID，多个用逗号分隔
+    created_at = db.Column(db.DateTime, default=dt.utcnow)
+

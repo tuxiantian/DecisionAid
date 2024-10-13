@@ -1,5 +1,5 @@
 from flask import Flask, abort, request, jsonify, Blueprint
-from shared_models import Checklist, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
+from shared_models import Article, Checklist, Review, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
 
 checklist_bp = Blueprint('checklist', __name__)
 
@@ -144,14 +144,39 @@ def get_user_checklist_answers(user_id):
 
 @checklist_bp.route('/checklist_answers/<int:user_id>/details/<int:decision_id>', methods=['GET'])
 def get_checklist_decision_details(user_id, decision_id):
+    # 获取决策详情
     decision = ChecklistDecision.query.get_or_404(decision_id)
     if decision.user_id != user_id:
         return jsonify({'error': 'Unauthorized access'}), 403
 
+    # 获取所有回答
     answers = ChecklistAnswer.query.filter_by(checklist_decision_id=decision.id).all()
+
+    # 获取所有问题，构造字典方便查找
     questions = ChecklistQuestion.query.filter_by(checklist_id=decision.checklist_id).all()
     questions_dict = {question.id: question.question for question in questions}
-    answers_data = [{'question': questions_dict[answer.question_id], 'answer': answer.answer} for answer in answers]
+
+    # 获取引用的文章信息
+    answers_data = []
+    for answer in answers:
+        # 获取引用文章的ID
+        referenced_article_ids = answer.referenced_articles.split(',') if answer.referenced_articles else []
+
+        # 查询引用文章（仅当有引用文章时）
+        referenced_articles_data = []
+        if referenced_article_ids:
+            referenced_articles = Article.query.filter(Article.id.in_(referenced_article_ids)).all()
+            # 构造引用文章的ID和标题列表
+            referenced_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_articles]
+
+        # 构造答案数据
+        answers_data.append({
+            'question': questions_dict[answer.question_id],
+            'answer': answer.answer,
+            'referenced_articles': referenced_articles_data
+        })
+
+    # 获取检查表的信息
     checklist = Checklist.query.get(decision.checklist_id)
     decision_details = {
         'decision_name': decision.decision_name,
@@ -160,6 +185,7 @@ def get_checklist_decision_details(user_id, decision_id):
         'final_decision': decision.final_decision,
         'answers': answers_data
     }
+
     return jsonify(decision_details), 200
 
 @checklist_bp.route('/checklist_answers/<int:id>', methods=['DELETE'])
@@ -207,3 +233,47 @@ def update_checklist(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500    
+    
+@checklist_bp.route('/reviews', methods=['POST'])
+def create_review():
+    data = request.get_json()
+    decision_id = data.get('decision_id')
+    content = data.get('content')
+    referenced_articles = ','.join(map(str, data.get('referenced_articles', [])))
+
+    if not decision_id or not content:
+        return jsonify({'error': 'Invalid review data'}), 400
+
+    review = Review(
+        decision_id=decision_id,
+        content=content,
+        referenced_articles=referenced_articles
+    )
+    db.session.add(review)
+    db.session.commit()
+
+    return jsonify({'message': 'Review created successfully', 'review': review.id}), 201
+
+@checklist_bp.route('/reviews/<int:decision_id>', methods=['GET'])
+def get_reviews(decision_id):
+    reviews = Review.query.filter_by(decision_id=decision_id).all()
+    reviews_data = []
+
+    for review in reviews:
+        # 获取引用的文章 ID 列表
+        referenced_article_ids = [int(id) for id in review.referenced_articles.split(',') if id.isdigit()]
+
+        # 查询引用的文章
+        referenced_articles = Article.query.filter(Article.id.in_(referenced_article_ids)).all()
+
+        # 构造引用文章的 ID 和标题
+        referenced_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_articles]
+
+        reviews_data.append({
+            'content': review.content,
+            'referenced_articles': referenced_articles_data,
+            'created_at': review.created_at
+        })
+
+    return jsonify(reviews_data), 200
+
