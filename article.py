@@ -23,14 +23,20 @@ def create_article():
 @article_bp.route('/articles', methods=['GET'])
 def get_articles():
     search = request.args.get('search', '')
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 10, type=int)
+
+    query = Article.query
+
     if search:
-        articles = Article.query.filter(
+        query = query.filter(
             (Article.title.ilike(f"%{search}%")) |
             (Article.tags.ilike(f"%{search}%")) |
             (Article.keywords.ilike(f"%{search}%"))
-        ).all()
-    else:
-        articles = Article.query.all()
+        )
+
+    paginated_articles = query.paginate(page=page, per_page=page_size, error_out=False)
+    articles = paginated_articles.items
 
     results = [
         {
@@ -43,7 +49,13 @@ def get_articles():
             'updated_at': article.updated_at
         } for article in articles
     ]
-    return jsonify(results), 200
+
+    return jsonify({
+        'articles': results,
+        'total_pages': paginated_articles.pages,
+        'current_page': paginated_articles.page,
+        'total_items': paginated_articles.total
+    }), 200
 
 @article_bp.route('/articles/<int:id>', methods=['GET'])
 def get_article(id):

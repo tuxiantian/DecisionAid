@@ -119,7 +119,8 @@ def save_checklist_answers():
         answer_record = ChecklistAnswer(
             checklist_decision_id=checklist_decision.id,
             question_id=question_id,
-            answer=answer_text
+            answer=answer_text,
+            referenced_articles=','.join(map(str, answer.get('referenced_articles', [])))
         )
         db.session.add(answer_record)
 
