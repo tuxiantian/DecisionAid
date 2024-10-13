@@ -15,6 +15,7 @@ def create_article():
         keywords=data['keywords']
     )
     new_article.created_at=dt.utcnow()
+    new_article.updated_at=dt.utcnow()
     db.session.add(new_article)
     db.session.commit()
     return jsonify({'message': 'Article created successfully', 'article': data}), 201
