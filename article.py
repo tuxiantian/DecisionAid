@@ -22,16 +22,16 @@ def create_article():
 
 @article_bp.route('/articles', methods=['GET'])
 def get_articles():
-    tag_filter = request.args.get('tags')
-    keyword_filter = request.args.get('keywords')
-    query = Article.query
+    search = request.args.get('search', '')
+    if search:
+        articles = Article.query.filter(
+            (Article.title.ilike(f"%{search}%")) |
+            (Article.tags.ilike(f"%{search}%")) |
+            (Article.keywords.ilike(f"%{search}%"))
+        ).all()
+    else:
+        articles = Article.query.all()
 
-    if tag_filter:
-        query = query.filter(Article.tags.like(f"%{tag_filter}%"))
-    if keyword_filter:
-        query = query.filter(Article.keywords.like(f"%{keyword_filter}%"))
-
-    articles = query.all()
     results = [
         {
             'id': article.id,
