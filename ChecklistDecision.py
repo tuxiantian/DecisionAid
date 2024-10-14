@@ -45,6 +45,7 @@ def get_checklists():
 def create_checklist():
     data = request.get_json()
     name = data.get('name')
+    mermaid_code = data.get('mermaid_code')
     description = data.get('description')
     questions = data.get('questions')
     user_id = data.get('user_id', 1)  # Default user_id to 1 if not provided
@@ -52,7 +53,7 @@ def create_checklist():
     if not name or not questions:
         return jsonify({'error': 'Checklist name and questions are required'}), 400
 
-    checklist = Checklist(user_id=user_id,name=name, description=description, version=1)
+    checklist = Checklist(user_id=user_id,name=name,mermaid_code=mermaid_code, description=description, version=1)
     db.session.add(checklist)
     db.session.commit()
 
@@ -85,6 +86,7 @@ def get_checklist_details(checklist_id):
     return jsonify({
         'id': checklist.id,
         'name': checklist.name,
+        'mermaid_code': checklist.mermaid_code,
         'description': checklist.description,
         'version': checklist.version,
         'questions': questions_data,

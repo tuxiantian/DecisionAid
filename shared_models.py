@@ -33,6 +33,7 @@ class Checklist(db.Model):
     user_id = db.Column(db.Integer, nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(255), nullable=True)
+    mermaid_code = db.Column(db.Text, nullable=True)  # 存储流程图代码
     created_at = db.Column(db.DateTime, default=dt.utcnow)
 
 class ChecklistQuestion(db.Model):
