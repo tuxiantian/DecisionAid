@@ -131,7 +131,7 @@ def save_checklist_answers():
 
 @checklist_bp.route('/checklist_answers/<int:user_id>', methods=['GET'])
 def get_user_checklist_answers(user_id):
-    checklist_decisions = ChecklistDecision.query.filter_by(user_id=user_id).all()
+    checklist_decisions = ChecklistDecision.query.filter_by(user_id=user_id).order_by(ChecklistDecision.created_at.desc()).all()
     user_answers = []
     for decision in checklist_decisions:
         checklist = Checklist.query.get(decision.checklist_id)

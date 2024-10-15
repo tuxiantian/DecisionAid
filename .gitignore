@@ -1,2 +1,7 @@
 venv
 __pycache__/
+cognitive_bias.py
+cognitive_biases.csv
+cognitive_biases_translated.csv
+cognitive_biases_translated_v2.csv
+translate.py
