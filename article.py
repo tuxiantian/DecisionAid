@@ -35,7 +35,7 @@ def get_articles():
             (Article.keywords.ilike(f"%{search}%"))
         )
 
-    paginated_articles = query.paginate(page=page, per_page=page_size, error_out=False)
+    paginated_articles = query.order_by(Article.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
     articles = paginated_articles.items
 
     results = [
