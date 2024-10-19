@@ -3,6 +3,18 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
+# 定义BalancedDecision模型
+class BalancedDecision(db.Model):
+    __tablename__ = 'balanced_decisions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    decision_name = db.Column(db.String(255), nullable=False)
+    conditions = db.Column(db.Text, nullable=False)
+    comparisons = db.Column(db.Text, nullable=False)
+    groups = db.Column(db.Text, nullable=False)
+    result = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=dt.utcnow)
+
 class Article(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255), nullable=False)
