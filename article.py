@@ -23,6 +23,7 @@ def create_article():
 @article_bp.route('/articles', methods=['GET'])
 def get_articles():
     search = request.args.get('search', '')
+    tag = request.args.get('tag', '')
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
 
@@ -31,10 +32,11 @@ def get_articles():
     if search:
         query = query.filter(
             (Article.title.ilike(f"%{search}%")) |
-            (Article.tags.ilike(f"%{search}%")) |
             (Article.keywords.ilike(f"%{search}%"))
         )
-
+    if tag:
+        query = query.filter(Article.tags == tag)
+        
     paginated_articles = query.order_by(Article.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
     articles = paginated_articles.items
 
