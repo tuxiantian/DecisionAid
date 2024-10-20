@@ -7,6 +7,7 @@ from TodoList import todolist_bp
 from article import article_bp
 from minio_utils import minio_bp
 from BalancedDecisionMaker import balanced_decision_bp
+from mermaid_utils import mermaid_bp
 import pymysql
 import json
 
@@ -24,6 +25,7 @@ app.register_blueprint(todolist_bp)
 app.register_blueprint(article_bp)
 app.register_blueprint(minio_bp)
 app.register_blueprint(balanced_decision_bp)
+app.register_blueprint(mermaid_bp)
 
 @app.route('/')
 def index():
