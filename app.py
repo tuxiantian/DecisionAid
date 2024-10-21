@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
 from ahp_routes import ahp_bp
 from ChecklistDecision import checklist_bp
@@ -13,7 +13,7 @@ from shared_models import db
 
 pymysql.install_as_MySQLdb()
 
-app = Flask(__name__, static_folder='build/static', template_folder='build')
+app = Flask(__name__, static_folder='build', template_folder='build')
 CORS(app)
 app.config.from_pyfile('config.py')
 db.init_app(app)
@@ -30,7 +30,13 @@ app.register_blueprint(science_decision_bp)
 def index():
     return render_template('index.html')
     
+@app.route('/static/<path:path>')
+def static_files(path):
+    return send_from_directory(app.static_folder + '/static', path)
 
+@app.route('/images/<path:path>')
+def image_files(path):
+    return send_from_directory(app.static_folder + '/images', path)
 
 if __name__ == '__main__':
     with app.app_context():
