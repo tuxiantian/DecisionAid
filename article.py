@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, Blueprint
+from sqlalchemy import desc
 from shared_models import Article, db
 from datetime import datetime as dt
 
@@ -36,8 +37,8 @@ def get_articles():
         )
     if tag:
         query = query.filter(Article.tags == tag)
-        
-    paginated_articles = query.order_by(Article.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
+
+    paginated_articles = query.order_by(desc(Article.reference_count), desc(Article.created_at)).paginate(page=page, per_page=page_size, error_out=False)
     articles = paginated_articles.items
 
     results = [
@@ -48,7 +49,8 @@ def get_articles():
             'tags': article.tags,
             'keywords': article.keywords,
             'created_at': article.created_at,
-            'updated_at': article.updated_at
+            'updated_at': article.updated_at,
+            'reference_count': article.reference_count
         } for article in articles
     ]
 
@@ -73,7 +75,8 @@ def get_article(id):
         'tags': article.tags,
         'keywords': article.keywords,
         'created_at': article.created_at,
-        'updated_at': article.updated_at
+        'updated_at': article.updated_at,
+        'reference_count': article.reference_count
     }
     return jsonify(result), 200
 

@@ -22,6 +22,7 @@ class Article(db.Model):
     author = db.Column(db.String(255), nullable=False)
     tags = db.Column(db.String(255), nullable=True)
     keywords = db.Column(db.String(255), nullable=True)
+    reference_count = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=dt.utcnow)
     updated_at = db.Column(db.DateTime, default=dt.utcnow, onupdate=dt.utcnow)
 

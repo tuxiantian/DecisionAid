@@ -115,6 +115,7 @@ def save_checklist_answers():
     for answer in answers:
         question_id = answer.get('question_id')
         answer_text = answer.get('answer')
+        referenced_articles = answer.get('referenced_articles', [])
         if not question_id or not answer_text:
             return jsonify({'error': 'Invalid answer data'}), 400
 
@@ -122,10 +123,14 @@ def save_checklist_answers():
             checklist_decision_id=checklist_decision.id,
             question_id=question_id,
             answer=answer_text,
-            referenced_articles=','.join(map(str, answer.get('referenced_articles', [])))
+            referenced_articles=','.join(map(str, referenced_articles))
         )
         db.session.add(answer_record)
-
+        # 增加引用文章的引用计数
+        for article_id in referenced_articles:
+            article = db.session.query(Article).filter_by(id=article_id).first()
+            if article:
+                article.reference_count += 1
     db.session.commit()
     return jsonify({'message': 'Checklist answers saved successfully'}), 200
 
@@ -241,7 +246,7 @@ def create_review():
     data = request.get_json()
     decision_id = data.get('decision_id')
     content = data.get('content')
-    referenced_articles = ','.join(map(str, data.get('referenced_articles', [])))
+    referenced_articles = data.get('referenced_articles', [])
 
     if not decision_id or not content:
         return jsonify({'error': 'Invalid review data'}), 400
@@ -249,11 +254,17 @@ def create_review():
     review = Review(
         decision_id=decision_id,
         content=content,
-        referenced_articles=referenced_articles
+        referenced_articles=','.join(map(str, referenced_articles))
     )
     db.session.add(review)
-    db.session.commit()
 
+    # 增加引用文章的引用计数
+    for article_id in referenced_articles:
+        article = db.session.query(Article).filter_by(id=article_id).first()
+        if article:
+            article.reference_count += 1
+
+    db.session.commit()
     return jsonify({'message': 'Review created successfully', 'review': review.id}), 201
 
 @checklist_bp.route('/reviews/<int:decision_id>', methods=['GET'])
