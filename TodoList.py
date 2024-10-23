@@ -13,8 +13,8 @@ def create_todo():
 
     # 解析 start_time 和 end_time 为 datetime 对象
     try:
-        start_time = datetime.strptime(data['start_time'], "%Y-%m-%dT%H:%M:%S.%fZ")
-        end_time = datetime.strptime(data['end_time'], "%Y-%m-%dT%H:%M:%S.%fZ")
+        start_time = datetime.strptime(data['start_time'], "%Y/%m/%d %H:%M:%S")
+        end_time = datetime.strptime(data['end_time'], "%Y/%m/%d %H:%M:%S")
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
