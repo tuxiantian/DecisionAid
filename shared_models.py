@@ -30,7 +30,7 @@ class Article(db.Model):
 class TodoItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
-    type = db.Column(db.Enum('today', 'this_week', 'this_month','one_week','one_month', 'custom'), nullable=False)
+    type = db.Column(db.Enum('today','tomorrow', 'this_week', 'this_month','one_week','one_month', 'custom'), nullable=False)
     status = db.Column(db.Enum('not_started', 'in_progress', 'completed', 'ended'), default='not_started')
     start_time = db.Column(db.DateTime)
     end_time = db.Column(db.DateTime)
