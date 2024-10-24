@@ -136,7 +136,9 @@ def save_checklist_answers():
 
 @checklist_bp.route('/checklist_answers/<int:user_id>', methods=['GET'])
 def get_user_checklist_answers(user_id):
-    checklist_decisions = ChecklistDecision.query.filter_by(user_id=user_id).order_by(ChecklistDecision.created_at.desc()).all()
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 10, type=int)
+    checklist_decisions = ChecklistDecision.query.filter_by(user_id=user_id).order_by(ChecklistDecision.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
     user_answers = []
     for decision in checklist_decisions:
         checklist = Checklist.query.get(decision.checklist_id)
@@ -147,7 +149,10 @@ def get_user_checklist_answers(user_id):
             'created_at': decision.created_at,
             'final_decision': decision.final_decision
         })
-    return jsonify(user_answers), 200
+    return jsonify({'checklistDecisions':user_answers,
+                    'total_pages': checklist_decisions.pages,
+        'current_page': checklist_decisions.page,
+        'total_items': checklist_decisions.total}), 200
 
 @checklist_bp.route('/checklist_answers/<int:user_id>/details/<int:decision_id>', methods=['GET'])
 def get_checklist_decision_details(user_id, decision_id):
