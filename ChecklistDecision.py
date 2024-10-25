@@ -213,15 +213,21 @@ def delete_checklist_decision(id):
         abort(404, description="Decision not found")
 
     try:
-        # First, delete all checklist answers associated with the decision
+        # 删除与 decision 相关联的 review 记录
+        Review.query.filter_by(decision_id=id).delete()
+
+        # 删除与 decision 相关联的 checklist answers 记录
         ChecklistAnswer.query.filter_by(checklist_decision_id=id).delete()
-        # Then, delete the checklist decision itself
+
+        # 删除 checklist decision 本身
         db.session.delete(decision)
+        
         db.session.commit()
-        return jsonify({'message': 'Decision and associated answers deleted successfully'}), 200
+        return jsonify({'message': 'Decision, associated reviews, and answers deleted successfully'}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
     
 @checklist_bp.route('/checklists/<int:id>', methods=['PUT'])
 def update_checklist(id):
