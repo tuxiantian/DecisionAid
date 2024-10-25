@@ -5,39 +5,45 @@ checklist_bp = Blueprint('checklist', __name__)
 
 @checklist_bp.route('/checklists', methods=['GET'])
 def get_checklists():
-    # 获取所有 Checklist，按名字升序和版本降序排列
-    all_checklists = Checklist.query.order_by(Checklist.name, Checklist.version.desc()).all()
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 10, type=int)
 
-    # 构造checklist数据
+    # 查询主版本 (parent_id 为 null 表示主版本)
+    paginated_checklists = Checklist.query.filter_by(parent_id=None).order_by(Checklist.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
+
     checklist_data = []
-    checklist_map = {}
+    
+    # 遍历主版本并查询其子版本
+    for checklist in paginated_checklists.items:
+        checklist_info = {
+            'id': checklist.id,
+            'name': checklist.name,
+            'description': checklist.description,
+            'version': checklist.version,
+            'can_update': True,
+            'versions': []  # 初始化子版本列表
+        }
 
-    # 遍历所有版本的 Checklist
-    for checklist in all_checklists:
-        if checklist.name not in checklist_map:
-            # 如果是最新版本，则允许更新
-            checklist_map[checklist.name] = {
-                'id': checklist.id,
-                'name': checklist.name,
-                'description': checklist.description,
-                'version': checklist.version,
-                'can_update': True  # 只有最新版本能更新
-            }
-        else:
-            # 对于旧版本，不允许更新
-            checklist_map[checklist.name]['versions'] = checklist_map[checklist.name].get('versions', []) + [{
-                'id': checklist.id,
-                'name': checklist.name,
-                'version': checklist.version,
-                'description': checklist.description,
+        # 查询当前主版本的子版本
+        child_checklists = Checklist.query.filter_by(parent_id=checklist.id).order_by(Checklist.version.desc()).all()
+        
+        # 将子版本添加到主版本中
+        for child in child_checklists:
+            checklist_info['versions'].append({
+                'id': child.id,
+                'version': child.version,
+                'description': child.description,
                 'can_update': False
-            }]
+            })
+        
+        checklist_data.append(checklist_info)
 
-    # 将数据转换为列表
-    for checklist in checklist_map.values():
-        checklist_data.append(checklist)
-
-    return jsonify(checklist_data), 200
+    return jsonify({
+        'checklists': checklist_data,
+        'total_pages': paginated_checklists.pages,
+        'current_page': paginated_checklists.page,
+        'total_items': paginated_checklists.total
+    }), 200
 
 
 
@@ -220,31 +226,41 @@ def delete_checklist_decision(id):
 @checklist_bp.route('/checklists/<int:id>', methods=['PUT'])
 def update_checklist(id):
     data = request.get_json()
-    checklist = Checklist.query.get(id)
-    if checklist is None:
+    
+    # 查询 parent_id 等于参数 id 的最高版本
+    latest_checklist = Checklist.query.filter_by(parent_id=id).order_by(Checklist.version.desc()).first()
+
+    # 如果找不到，使用当前的 id 对应的 checklist
+    if latest_checklist is None:
+        latest_checklist = Checklist.query.get(id)
+    
+    # 如果仍然没有找到，则返回 404
+    if latest_checklist is None:
         abort(404, description="Checklist not found")
 
+    # 创建新版本的 checklist
     new_checklist = Checklist(
-        name=checklist.name,
-        description=data.get('description', checklist.description),
-        user_id=checklist.user_id,
-        version=checklist.version+1,
-        parent_id=id
+        name=latest_checklist.name,
+        description=data.get('description', latest_checklist.description),
+        user_id=latest_checklist.user_id,
+        version=latest_checklist.version + 1,
+        parent_id=latest_checklist.parent_id or id  # 设置 parent_id 为最初的 checklist id
     )
     db.session.add(new_checklist)
-    db.session.flush()  # Get new checklist id before commit
+    db.session.flush()  # 获取新 checklist 的 id
 
+    # 添加问题
     for question_text in data.get('questions', []):
         new_question = ChecklistQuestion(checklist_id=new_checklist.id, question=question_text)
         db.session.add(new_question)
-
 
     try:
         db.session.commit()
         return jsonify({'message': 'Checklist updated successfully'}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500    
+        return jsonify({'error': str(e)}), 500
+ 
     
 @checklist_bp.route('/reviews', methods=['POST'])
 def create_review():
