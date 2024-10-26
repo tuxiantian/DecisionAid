@@ -7,7 +7,6 @@ from article import article_bp
 from minio_utils import minio_bp
 from BalancedDecisionMaker import balanced_decision_bp
 from mermaid_utils import mermaid_bp
-from science_decision import science_decision_bp
 import pymysql
 from shared_models import db
 
@@ -24,7 +23,6 @@ app.register_blueprint(article_bp)
 app.register_blueprint(minio_bp)
 app.register_blueprint(balanced_decision_bp)
 app.register_blueprint(mermaid_bp)
-app.register_blueprint(science_decision_bp)
 
 @app.route('/')
 def index():
