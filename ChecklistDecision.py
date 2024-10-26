@@ -63,8 +63,19 @@ def create_checklist():
     db.session.add(checklist)
     db.session.commit()
 
-    for question_text in questions:
-        question = ChecklistQuestion(checklist_id=checklist.id, question=question_text)
+    for item in questions:
+        question_text = item.get('question')
+        description_text = item.get('description', '')  # 默认为空字符串
+
+        # 检查问题内容是否有效
+        if not question_text:
+            return jsonify({'error': 'Each question must have text'}), 400
+
+        question = ChecklistQuestion(
+            checklist_id=checklist.id,
+            question=question_text,
+            description=description_text  # 将描述信息一起保存
+        )
         db.session.add(question)
 
     db.session.commit()
@@ -72,32 +83,44 @@ def create_checklist():
 
 @checklist_bp.route('/checklists/<int:checklist_id>', methods=['GET'])
 def get_checklist_details(checklist_id):
+    """
+    获取最新 Checklist 的详细信息。
+    入参 checklist_id 是父版本的 Checklist ID，此接口会自动获取最新版本的数据。
+    """
+
+    # 获取当前 checklist 或返回 404
     checklist = Checklist.query.get_or_404(checklist_id)
-    
-    # 获取所有相关版本的 Checklist，包括当前 Checklist
+
+    # 获取所有相关版本的 Checklist
     if checklist.parent_id:
         versions = Checklist.query.filter(
             (Checklist.parent_id == checklist.parent_id) | (Checklist.id == checklist.parent_id)
-        ).order_by(Checklist.version).all()
+        ).order_by(Checklist.version.desc()).all()
     else:
         versions = Checklist.query.filter(
             (Checklist.parent_id == checklist.id) | (Checklist.id == checklist.id)
-        ).order_by(Checklist.version).all()
+        ).order_by(Checklist.version.desc()).all()
 
-    questions = ChecklistQuestion.query.filter_by(checklist_id=checklist.id).all()
-    questions_data = [{'id': question.id, 'question': question.question} for question in questions]
+    # 找到最新版本的 Checklist
+    latest_version = versions[0]  # 因为已按版本降序排序，第一个即为最新版本
 
+    # 获取最新版本的 ChecklistQuestion
+    questions = ChecklistQuestion.query.filter_by(checklist_id=latest_version.id).all()
+    questions_data = [{'id': question.id, 'question': question.question, 'description': question.description} for question in questions]
+
+    # 版本信息数据
     versions_data = [{'id': version.id, 'version': version.version} for version in versions]
 
     return jsonify({
-        'id': checklist.id,
-        'name': checklist.name,
-        'mermaid_code': checklist.mermaid_code,
-        'description': checklist.description,
-        'version': checklist.version,
+        'id': latest_version.id,
+        'name': latest_version.name,
+        'mermaid_code': latest_version.mermaid_code,
+        'description': latest_version.description,
+        'version': latest_version.version,
         'questions': questions_data,
         'versions': versions_data
     }), 200
+
 
 
 @checklist_bp.route('/save_checklist_answers', methods=['POST'])
@@ -255,10 +278,22 @@ def update_checklist(id):
     db.session.add(new_checklist)
     db.session.flush()  # 获取新 checklist 的 id
 
+    questions = data.get('questions', [])
     # 添加问题
-    for question_text in data.get('questions', []):
-        new_question = ChecklistQuestion(checklist_id=new_checklist.id, question=question_text)
-        db.session.add(new_question)
+    for item in questions:
+        question_text = item.get('question')
+        description_text = item.get('description', '')  # 默认为空字符串
+
+        # 检查问题内容是否有效
+        if not question_text:
+            return jsonify({'error': 'Each question must have text'}), 400
+
+        question = ChecklistQuestion(
+            checklist_id=new_checklist.id,
+            question=question_text,
+            description=description_text  # 将描述信息一起保存
+        )
+        db.session.add(question)
 
     try:
         db.session.commit()

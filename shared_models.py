@@ -53,6 +53,7 @@ class ChecklistQuestion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     checklist_id = db.Column(db.Integer, db.ForeignKey('checklist.id'), nullable=False)
     question = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.String(255), nullable=False)
 
 class ChecklistAnswer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
