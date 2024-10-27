@@ -353,3 +353,67 @@ def get_reviews(decision_id):
 
     return jsonify(reviews_data), 200
 
+@checklist_bp.route('/checklists/<int:checklist_id>/delete-with-children', methods=['DELETE'])
+def delete_checklist_with_children(checklist_id):
+    """
+    删除父版本及其所有子版本，以及关联的 ChecklistQuestion、ChecklistAnswer、ChecklistDecision 和 Review 数据。
+    """
+    checklist = Checklist.query.get_or_404(checklist_id)
+    
+    # 检查是否为父版本
+    if checklist.parent_id is not None:
+        return jsonify({'error': 'This is not a parent checklist.'}), 400
+
+    try:
+        # 找到所有相关的子版本
+        all_versions = Checklist.query.filter(
+            (Checklist.parent_id == checklist_id) | (Checklist.id == checklist_id)
+        ).all()
+
+        for version in all_versions:
+            # 删除关联的 ChecklistQuestion、ChecklistAnswer、ChecklistDecision 和 Review 数据
+            delete_related_data(version.id)
+            db.session.delete(version)
+
+        db.session.commit()
+        return jsonify({'message': 'Parent checklist and all related versions deleted successfully.'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@checklist_bp.route('/checklists/<int:checklist_id>', methods=['DELETE'])
+def delete_single_checklist(checklist_id):
+    """
+    仅删除指定的 checklist 子版本及其相关的 ChecklistQuestion、ChecklistAnswer、ChecklistDecision 和 Review 数据。
+    """
+    checklist = Checklist.query.get_or_404(checklist_id)
+
+    try:
+        # 删除关联数据
+        delete_related_data(checklist.id)
+
+        # 删除当前 Checklist
+        db.session.delete(checklist)
+        db.session.commit()
+        return jsonify({'message': 'Checklist deleted successfully.'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+def delete_related_data(checklist_id):
+    """
+    删除与指定 checklist 相关的所有 ChecklistQuestion、ChecklistAnswer、ChecklistDecision 和 Review 数据。
+    """
+    # 删除 ChecklistQuestion
+    ChecklistQuestion.query.filter_by(checklist_id=checklist_id).delete()
+
+    # 删除 ChecklistDecision 和相关的 Review
+    decisions = ChecklistDecision.query.filter_by(checklist_id=checklist_id).all()
+    for decision in decisions:
+        Review.query.filter_by(decision_id=decision.id).delete()
+        ChecklistAnswer.query.filter_by(checklist_decision_id=decision.id).delete()
+        db.session.delete(decision)
