@@ -271,6 +271,7 @@ def update_checklist(id):
     new_checklist = Checklist(
         name=latest_checklist.name,
         description=data.get('description', latest_checklist.description),
+        mermaid_code=data.get('mermaid_code'),
         user_id=latest_checklist.user_id,
         version=latest_checklist.version + 1,
         parent_id=latest_checklist.parent_id or id  # 设置 parent_id 为最初的 checklist id
