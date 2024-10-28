@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask_login import LoginManager, UserMixin, current_user, login_user, logout_user, login_required # type: ignore
 from flask_cors import CORS
 from ahp_routes import ahp_bp
 from ChecklistDecision import checklist_bp
@@ -8,12 +9,17 @@ from minio_utils import minio_bp
 from BalancedDecisionMaker import balanced_decision_bp
 from mermaid_utils import mermaid_bp
 import pymysql
-from shared_models import db
-
+from shared_models import User, db
+from werkzeug.security import generate_password_hash, check_password_hash
 pymysql.install_as_MySQLdb()
 
 app = Flask(__name__, static_folder='build', template_folder='build')
-CORS(app)
+CORS(app, supports_credentials=True)
+
+# 初始化 Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+
 app.config.from_pyfile('config.py')
 db.init_app(app)
 app.register_blueprint(ahp_bp)
@@ -35,6 +41,79 @@ def static_files(path):
 @app.route('/images/<path:path>')
 def image_files(path):
     return send_from_directory(app.static_folder + '/images', path)
+
+# 用户加载函数
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# 自定义未登录时的响应
+@login_manager.unauthorized_handler
+def unauthorized():
+    # 返回 JSON 响应，通知前端用户未登录
+    return jsonify({'error': 'Unauthorized', 'message': 'Please log in to access this resource.'}), 401
+
+@app.route('/login', methods=['POST'])
+def login():
+    # 获取 JSON 数据
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    # 查询用户
+    user = User.query.filter_by(username=username).first()
+    
+    # 验证用户和密码
+    if user and user.check_password(password):
+        login_user(user)  # 登录用户
+        return jsonify({'message': 'Login successful', 'user_id': user.id}), 200
+
+    # 登录失败
+    return jsonify({'message': 'Invalid credentials'}), 401
+@app.route('/logout', methods=['POST'])
+def logout():
+    logout_user()  # 使用 Flask-Login 的 logout_user() 退出用户
+    return jsonify({'message': 'Logout successful'}), 200
+
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    username = data.get('username')
+    email = data.get('email')
+    password = data.get('password')
+    avatar_url = data.get('avatar_url', None)  # 可选头像字段
+
+    # 检查必填字段
+    if not username or not email or not password:
+        return jsonify({'error': 'Username, email, and password are required.'}), 400
+
+    # 检查是否有重复用户
+    if User.query.filter((User.username == username) | (User.email == email)).first():
+        return jsonify({'error': 'Username or email already exists.'}), 400
+
+    # 创建新用户
+    user = User(
+        username=username,
+        email=email,
+        password_hash=generate_password_hash(password),
+        avatar_url=avatar_url
+    )
+
+    # 添加到数据库
+    db.session.add(user)
+    db.session.commit()
+
+    return jsonify({'message': 'User registered successfully.'}), 201
+
+
+# 使用 current_user 的示例
+@app.route('/profile')
+@login_required
+def profile():
+    return jsonify({
+        'username': current_user.username,
+        'email': current_user.email,
+    })
 
 if __name__ == '__main__':
     with app.app_context():

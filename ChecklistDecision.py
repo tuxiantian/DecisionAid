@@ -1,5 +1,7 @@
 from flask import Flask, abort, request, jsonify, Blueprint
-from shared_models import Article, Checklist, Review, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
+from shared_models import Article, Checklist, DecisionGroup, GroupMembers, Review, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
+from flask_login import current_user,login_required
+
 
 checklist_bp = Blueprint('checklist', __name__)
 
@@ -224,8 +226,19 @@ def get_checklist_decision_details(user_id, decision_id):
         'version': checklist.version,
         'created_at': decision.created_at,
         'final_decision': decision.final_decision,
-        'answers': answers_data
+        'answers': answers_data,
+        'has_group': False  # 默认没有决策组
     }
+
+    # 检查决策组信息
+    group = DecisionGroup.query.filter_by(checklist_decision_id=decision_id).first()
+    if group:
+        decision_details['group'] = {
+            'id': group.id,
+            'name': group.name,
+            'members_count': len(group.members)  # 可以返回成员数量
+        }
+        decision_details['has_group'] = True  # 如果有决策组，设置为 True
 
     return jsonify(decision_details), 200
 
@@ -417,3 +430,168 @@ def delete_related_data(checklist_id):
         Review.query.filter_by(decision_id=decision.id).delete()
         ChecklistAnswer.query.filter_by(checklist_decision_id=decision.id).delete()
         db.session.delete(decision)
+
+@checklist_bp.route('/decision_groups', methods=['POST'])
+def create_decision_group():
+    data = request.get_json()
+    name = data.get('name')
+    owner_id = data.get('owner_id')
+    checklist_decision_id = data.get('checklist_decision_id')
+
+    if not name or not owner_id or not checklist_decision_id:
+        return jsonify({'error': 'Name, owner_id, and checklist_decision_id are required'}), 400
+
+    decision_group = DecisionGroup(
+        name=name,
+        owner_id=owner_id,
+        checklist_decision_id=checklist_decision_id
+    )
+    db.session.add(decision_group)
+    db.session.commit()
+
+    return jsonify({'message': 'Decision group created successfully', 'group_id': decision_group.id}), 201
+
+@checklist_bp.route('/decision_groups/<int:group_id>/invite', methods=['POST'])
+def invite_member(group_id):
+    data = request.get_json()
+    user_id = data.get('user_id')  # 被邀请用户的ID
+    group = DecisionGroup.query.get_or_404(group_id)
+    
+    # 检查是否是组长操作
+    if group.owner_id != current_user.id:
+        return jsonify({'error': 'Only the group owner can invite members'}), 403
+
+    # 添加成员
+    member = GroupMembers(group_id=group_id, user_id=user_id)
+    db.session.add(member)
+    db.session.commit()
+    return jsonify({'message': 'Member invited successfully'}), 200
+
+@checklist_bp.route('/decision_groups/<int:group_id>/members', methods=['GET'])
+def get_decision_group_members(group_id):
+    # 查询决策组是否存在
+    decision_group = DecisionGroup.query.get_or_404(group_id)
+
+    # 获取该决策组的成员列表
+    members = decision_group.members
+
+    # 构造成员信息
+    members_data = [{'id': member.id, 'username': member.username, 'email': member.email} for member in members]
+
+    return jsonify({'members': members_data}), 200
+
+@checklist_bp.route('/join-group/<int:group_id>', methods=['POST'])
+@login_required
+def join_decision_group(group_id):
+    # 检查决策组是否存在
+    decision_group = DecisionGroup.query.get_or_404(group_id)
+
+    # 检查用户是否已经是该组成员
+    if current_user in decision_group.members:
+        return jsonify({'message': 'User is already a member of this group'}), 400
+
+    # 将用户加入到该决策组
+    decision_group.members.append(current_user)
+    db.session.commit()
+
+    return jsonify({'message': 'User successfully joined the decision group'}), 200
+
+@checklist_bp.route('/decision_groups/<int:group_id>/details', methods=['GET'])
+@login_required
+def get_decision_group_details(group_id):
+    # 获取决策组详情
+    decision_group = DecisionGroup.query.get_or_404(group_id)
+    decision = ChecklistDecision.query.get(decision_group.checklist_decision_id)
+    inviter = decision_group.owner  # 假设owner是创建者
+
+    # 构造响应数据
+    group_details = {
+        'decision_id':decision.id,
+        'group_name': decision_group.name,
+        'decision_name': decision.decision_name if decision else 'Unknown Decision',
+        'inviter_username': inviter.username if inviter else 'Unknown'
+    }
+
+    return jsonify(group_details), 200
+
+@checklist_bp.route('/get_checklist_questions/<int:decision_id>', methods=['GET'])
+def get_checklist_questions(decision_id):
+    # 检查决策组是否存在
+    decision = ChecklistDecision.query.get(decision_id)
+    if not decision:
+        return jsonify({"error": "Decision not found"}), 404
+
+    # 获取 checklist_id 对应的问题
+    questions = ChecklistQuestion.query.filter_by(checklist_id=decision.checklist_id).all()
+
+    # 格式化问题数据
+    question_data = [
+        {
+            "id": question.id,
+            "checklist_id": question.checklist_id,
+            "question": question.question,
+            "description": question.description  # 将 placeholder 替换为 description
+        }
+        for question in questions
+    ]
+
+    return jsonify(question_data)
+
+@checklist_bp.route('/checklist_answers/decision/<int:decision_id>', methods=['POST'])
+def answer_checklist_for_group(decision_id):
+    data = request.get_json()
+    answers = data.get('answers')
+    for answer_data in answers:
+        answer = ChecklistAnswer(
+            checklist_decision_id=decision_id,
+            question_id=answer_data['question_id'],
+            user_id=current_user.id,  # 当前用户
+            answer=answer_data['answer'],
+            referenced_articles=','.join(map(str, answer_data.get('referenced_articles', [])))
+        )
+        db.session.add(answer)
+    db.session.commit()
+    return jsonify({'message': 'Answers submitted successfully'}), 200
+
+@checklist_bp.route('/checklist_answers/group/<int:group_id>/decision/<int:decision_id>/responses', methods=['GET'])
+def get_group_answers(group_id, decision_id):
+    """
+    获取指定决策组中所有成员对于某个决策的回答详情，包括问题内容和引用文章标题。
+    """
+    # 获取该决策的所有回答
+    answers = ChecklistAnswer.query.filter_by(checklist_decision_id=decision_id).all()
+
+    # 获取该决策的所有问题，并生成字典映射 {question_id: question_text}
+    questions = ChecklistQuestion.query.filter_by(checklist_id=decision_id).all()
+    questions_dict = {question.id: question.question for question in questions}
+
+    grouped_answers = {}
+
+    # 构建回答数据
+    for answer in answers:
+        question_id = answer.question_id
+
+        # 获取该问题的内容
+        question_text = questions_dict.get(question_id, "Unknown question")
+
+        # 获取引用的文章标题
+        referenced_article_ids = answer.referenced_articles.split(',') if answer.referenced_articles else []
+        referenced_articles_data = []
+        if referenced_article_ids:
+            referenced_articles = Article.query.filter(Article.id.in_(referenced_article_ids)).all()
+            referenced_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_articles]
+
+        # 构造该问题的回答数据
+        if question_id not in grouped_answers:
+            grouped_answers[question_id] = {
+                'question': question_text,
+                'answers': []
+            }
+
+        grouped_answers[question_id]['answers'].append({
+            'user_id': answer.user_id,
+            'answer': answer.answer,
+            'referenced_articles': referenced_articles_data
+        })
+
+    return jsonify(grouped_answers), 200

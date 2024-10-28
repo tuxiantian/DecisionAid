@@ -1,7 +1,46 @@
 from datetime import datetime as dt
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin # type: ignore
+from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
+
+class User(db.Model, UserMixin):
+    __tablename__ = 'user'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)  # 用户名
+    email = db.Column(db.String(120), unique=True, nullable=False)     # 邮箱
+    password_hash = db.Column(db.String(168), nullable=False)          # 密码哈希
+    avatar_url = db.Column(db.String(255), nullable=True)              # 头像URL
+    created_at = db.Column(db.DateTime, default=dt.utcnow)       # 创建时间
+    updated_at = db.Column(db.DateTime, onupdate=dt.utcnow)      # 更新时间
+
+    # 手动定义反向关系
+    decision_groups = db.relationship('DecisionGroup', secondary='group_members', back_populates='members')
+    def set_password(self, password):
+        """使用密码哈希存储密码"""
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        """验证用户输入的密码是否正确"""
+        return check_password_hash(self.password_hash, password)
+
+class DecisionGroup(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    checklist_decision_id = db.Column(db.Integer, db.ForeignKey('checklist_decision.id'), nullable=False)  # 与决策关联
+    # 手动定义双向关系，避免冲突
+    members = db.relationship('User', secondary='group_members', back_populates='decision_groups')
+    # 建立关联关系
+    checklist_decision = db.relationship('ChecklistDecision', backref='decision_groups')
+    # 定义 owner 关系
+    owner = db.relationship('User', backref='owned_groups', foreign_keys=[owner_id])
+
+class GroupMembers(db.Model):
+    group_id = db.Column(db.Integer, db.ForeignKey('decision_group.id'), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
 
 # 定义BalancedDecision模型
 class BalancedDecision(db.Model):
@@ -59,6 +98,7 @@ class ChecklistAnswer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     checklist_decision_id = db.Column(db.Integer, db.ForeignKey('checklist_decision.id'), nullable=False)
     question_id = db.Column(db.Integer, db.ForeignKey('checklist_question.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # 记录回答用户
     referenced_articles = db.Column(db.String(255), nullable=True)  # 引用的文章ID，以逗号分隔
     answer = db.Column(db.Text, nullable=False)
 

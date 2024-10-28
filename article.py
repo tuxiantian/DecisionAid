@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, Blueprint
 from sqlalchemy import desc
 from shared_models import Article, db
 from datetime import datetime as dt
+from flask_login import current_user
 
 article_bp = Blueprint('article', __name__)
 
@@ -27,7 +28,7 @@ def get_articles():
     tag = request.args.get('tag', '')
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
-
+    print(current_user.id)
     query = Article.query
 
     if search:
