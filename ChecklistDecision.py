@@ -1,5 +1,5 @@
 from flask import Flask, abort, request, jsonify, Blueprint
-from shared_models import Article, Checklist, DecisionGroup, GroupMembers, Review, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
+from shared_models import Article, Checklist, DecisionGroup, GroupMembers, Review, User, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
 from flask_login import current_user,login_required
 
 
@@ -192,55 +192,62 @@ def get_checklist_decision_details(user_id, decision_id):
     if decision.user_id != user_id:
         return jsonify({'error': 'Unauthorized access'}), 403
 
-    # 获取所有回答
-    answers = ChecklistAnswer.query.filter_by(checklist_decision_id=decision.id).all()
-
-    # 获取所有问题，构造字典方便查找
+    # 获取所有问题，并构造字典
     questions = ChecklistQuestion.query.filter_by(checklist_id=decision.checklist_id).all()
     questions_dict = {question.id: question.question for question in questions}
 
-    # 获取引用的文章信息
-    answers_data = []
+    # 获取决策组信息
+    group = DecisionGroup.query.filter_by(checklist_decision_id=decision_id).first()
+    has_group = group is not None
+
+    # 初始化回答结构
+    answers_data = {question_id: [] for question_id in questions_dict.keys()}
+
+    # 获取所有回答，包括每个回答的用户和引用文章信息
+    answers = ChecklistAnswer.query.filter_by(checklist_decision_id=decision.id).all()
+
     for answer in answers:
-        # 获取引用文章的ID
+        print(f"Fetching user for user_id: {answer.user_id}")  # 调试用
         referenced_article_ids = answer.referenced_articles.split(',') if answer.referenced_articles else []
 
-        # 查询引用文章（仅当有引用文章时）
+        # 查询引用文章（如果存在）
         referenced_articles_data = []
         if referenced_article_ids:
             referenced_articles = Article.query.filter(Article.id.in_(referenced_article_ids)).all()
-            # 构造引用文章的ID和标题列表
             referenced_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_articles]
 
-        # 构造答案数据
-        answers_data.append({
-            'question': questions_dict[answer.question_id],
+        # 获取回答者信息
+        user = User.query.get(answer.user_id)
+
+        # 按问题 ID 聚合不同用户的回答
+        answers_data[answer.question_id].append({
+            'user_id': answer.user_id,
+            'username': user.username,
             'answer': answer.answer,
             'referenced_articles': referenced_articles_data
         })
 
-    # 获取检查表的信息
-    checklist = Checklist.query.get(decision.checklist_id)
+    # 构建决策详情返回数据
     decision_details = {
         'decision_name': decision.decision_name,
-        'version': checklist.version,
+        'version': Checklist.query.get(decision.checklist_id).version,
         'created_at': decision.created_at,
         'final_decision': decision.final_decision,
-        'answers': answers_data,
-        'has_group': False  # 默认没有决策组
+        'answers': [{'question': questions_dict[q_id], 'responses': responses} for q_id, responses in answers_data.items()],
+        'has_group': has_group,
     }
 
-    # 检查决策组信息
-    group = DecisionGroup.query.filter_by(checklist_decision_id=decision_id).first()
-    if group:
+    # 如果有决策组信息，添加组信息到返回数据中
+    if has_group:
         decision_details['group'] = {
             'id': group.id,
             'name': group.name,
-            'members_count': len(group.members)  # 可以返回成员数量
+            'members_count': len(group.members),
+            'members': [{'id': member.id, 'username': member.username} for member in group.members]
         }
-        decision_details['has_group'] = True  # 如果有决策组，设置为 True
 
     return jsonify(decision_details), 200
+
 
 @checklist_bp.route('/checklist_answers/<int:id>', methods=['DELETE'])
 def delete_checklist_decision(id):
