@@ -66,7 +66,7 @@ def login():
     # 验证用户和密码
     if user and user.check_password(password):
         login_user(user)  # 登录用户
-        return jsonify({'message': 'Login successful', 'user_id': user.id}), 200
+        return jsonify({'message': 'Login successful', 'user_id': user.id,'username':username}), 200
 
     # 登录失败
     return jsonify({'message': 'Invalid credentials'}), 401
