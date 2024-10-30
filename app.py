@@ -42,6 +42,11 @@ def static_files(path):
 def image_files(path):
     return send_from_directory(app.static_folder + '/images', path)
 
+# 捕获所有前端路由，将其指向 index.html
+@app.route('/<path:path>')
+def serve_react_app(path):
+    return send_from_directory(app.static_folder, 'index.html')
+
 # 用户加载函数
 @login_manager.user_loader
 def load_user(user_id):
