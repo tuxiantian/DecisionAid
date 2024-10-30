@@ -3,6 +3,9 @@ from datetime import datetime as dt
 
 from flask import Flask, abort, request, jsonify, Blueprint
 from shared_models import TodoItem, db
+from flask_login import current_user
+from utils import check_todo_permission
+
 
 todolist_bp = Blueprint('todolist', __name__)
 
@@ -20,6 +23,7 @@ def create_todo():
 
     todo = TodoItem(
         name=data['name'],
+        user_id=current_user.id,
         start_time=start_time,
         end_time=end_time,
         type=data['type'],
@@ -45,12 +49,12 @@ def create_todo():
 @todolist_bp.route('/todos', methods=['GET'])
 def get_todos():
     now = dt.utcnow()
-    expired_todos = TodoItem.query.filter(TodoItem.end_time < now, TodoItem.status != 'ended').all()
+    expired_todos = TodoItem.query.filter(TodoItem.end_time < now, TodoItem.status != 'ended',TodoItem.user_id == current_user.id).all()
     for todo in expired_todos:
         todo.status = 'ended'
     db.session.commit()  # 更新数据库
 
-    todos = TodoItem.query.all()
+    todos = TodoItem.query.filter(TodoItem.user_id == current_user.id).all()
     todos_data = []
     for todo in todos:
         todos_data.append({
@@ -67,16 +71,13 @@ def get_todos():
     return jsonify(todos_data), 200
 
 @todolist_bp.route('/todos/<int:id>', methods=['PUT'])
-def update_todo_status(id):
+@check_todo_permission
+def update_todo_status(id, todo):
     data = request.get_json()
     status = data.get('status')
 
     if status != 'completed':
         return jsonify({'error': 'Invalid status value'}), 400
-
-    todo = TodoItem.query.get(id)
-    if not todo:
-        return jsonify({'error': 'Todo not found'}), 404
 
     todo.status = status
     todo.updated_at = dt.utcnow()
@@ -85,11 +86,8 @@ def update_todo_status(id):
     return jsonify({'message': 'Todo status updated successfully'}), 200
 
 @todolist_bp.route('/todos/<int:id>', methods=['DELETE'])
-def delete_todo(id):
-    todo = TodoItem.query.get(id)
-    if not todo:
-        return jsonify({'error': 'Todo not found'}), 404
-
+@check_todo_permission
+def delete_todo(id, todo):
     try:
         db.session.delete(todo)
         db.session.commit()
@@ -104,7 +102,7 @@ def get_completed_todos():
     page_size = request.args.get('page_size', 10, type=int)
     
     # 使用分页获取已完成的待办事项，按更新时间倒序排列
-    completed_todos_query = TodoItem.query.filter_by(status='completed').order_by(TodoItem.updated_at.desc())
+    completed_todos_query = TodoItem.query.filter_by(status='completed',user_id=current_user.id).order_by(TodoItem.updated_at.desc())
     
     # 实现分页
     pagination = completed_todos_query.paginate(page=page,
@@ -133,7 +131,7 @@ def get_ended_todos():
     page_size = request.args.get('page_size', 10, type=int)
     
     # 使用分页获取已完成的待办事项，按更新时间倒序排列
-    completed_todos_query = TodoItem.query.filter_by(status='ended').order_by(TodoItem.updated_at.desc())
+    completed_todos_query = TodoItem.query.filter_by(status='ended',user_id=current_user.id).order_by(TodoItem.updated_at.desc())
     
     # 实现分页
     pagination = completed_todos_query.paginate(page=page,

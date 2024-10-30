@@ -2,6 +2,7 @@ import json
 from flask import Flask, request, jsonify, Blueprint
 from shared_models import BalancedDecision, db
 from datetime import datetime as dt
+from flask_login import current_user
 
 balanced_decision_bp = Blueprint('balanced_decision', __name__)
 
@@ -19,6 +20,7 @@ def save_decision():
     # 将数据保存到数据库
     try:
         new_decision = BalancedDecision(
+            user_id=current_user.id,
             decision_name=decision_name,
             conditions=json.dumps(conditions),
             comparisons=json.dumps(comparisons),
@@ -37,7 +39,7 @@ def save_decision():
 # 获取所有决策数据的API接口
 @balanced_decision_bp.route('/api/get_decisions', methods=['GET'])
 def get_decisions():
-    decisions = BalancedDecision.query.all()
+    decisions = BalancedDecision.query.filter_by(user_id=current_user.id).all()
     decisions_list = [
         {
             'id': decision.id,
@@ -55,6 +57,8 @@ def get_decision(id):
     if decision is None:
         return jsonify({"message": "Decision not found"}), 404
 
+    if not decision.user_id==current_user.id:
+        return jsonify({"message": "You are not allowed to access this Decision"}), 403
     decision_details = {
         'id': decision.id,
         'decision_name': decision.decision_name,

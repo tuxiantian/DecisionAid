@@ -47,6 +47,7 @@ class BalancedDecision(db.Model):
     __tablename__ = 'balanced_decisions'
 
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     decision_name = db.Column(db.String(255), nullable=False)
     conditions = db.Column(db.Text, nullable=False)
     comparisons = db.Column(db.Text, nullable=False)
@@ -68,6 +69,7 @@ class Article(db.Model):
 
 class TodoItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     name = db.Column(db.String(255), nullable=False)
     type = db.Column(db.Enum('today','tomorrow', 'this_week', 'this_month','one_week','one_month', 'custom'), nullable=False)
     status = db.Column(db.Enum('not_started', 'in_progress', 'completed', 'ended'), default='not_started')
