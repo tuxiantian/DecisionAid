@@ -6,6 +6,9 @@ from flask_login import current_user
 def check_todo_permission(func):
     @wraps(func)
     def decorated_function(*args, **kwargs):
+        # 检查用户是否已登录
+        if not current_user.is_authenticated:
+            return jsonify({'error': 'Unauthorized access'}), 401
         todo_id = kwargs.get('id')
         todo = TodoItem.query.get(todo_id)
         

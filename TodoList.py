@@ -3,7 +3,7 @@ from datetime import datetime as dt
 
 from flask import Flask, abort, request, jsonify, Blueprint
 from shared_models import TodoItem, db
-from flask_login import current_user
+from flask_login import current_user, login_required
 from utils import check_todo_permission
 
 
@@ -11,6 +11,7 @@ todolist_bp = Blueprint('todolist', __name__)
 
 # 创建待办事项
 @todolist_bp.route('/todos', methods=['POST'])
+@login_required
 def create_todo():
     data = request.get_json()
 
@@ -47,6 +48,7 @@ def create_todo():
 
 # 获取待办事项列表
 @todolist_bp.route('/todos', methods=['GET'])
+@login_required
 def get_todos():
     now = dt.utcnow()
     expired_todos = TodoItem.query.filter(TodoItem.end_time < now, TodoItem.status != 'ended',TodoItem.user_id == current_user.id).all()
@@ -72,6 +74,7 @@ def get_todos():
 
 @todolist_bp.route('/todos/<int:id>', methods=['PUT'])
 @check_todo_permission
+@login_required
 def update_todo_status(id, todo):
     data = request.get_json()
     status = data.get('status')
@@ -87,6 +90,7 @@ def update_todo_status(id, todo):
 
 @todolist_bp.route('/todos/<int:id>', methods=['DELETE'])
 @check_todo_permission
+@login_required
 def delete_todo(id, todo):
     try:
         db.session.delete(todo)
@@ -97,6 +101,7 @@ def delete_todo(id, todo):
         return jsonify({'error': 'An error occurred while deleting the todo'}), 500
     
 @todolist_bp.route('/todos/completed', methods=['GET'])
+@login_required
 def get_completed_todos():
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
@@ -126,6 +131,7 @@ def get_completed_todos():
     }), 200
 
 @todolist_bp.route('/todos/ended', methods=['GET'])
+@login_required
 def get_ended_todos():
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
