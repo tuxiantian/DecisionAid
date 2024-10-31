@@ -2,7 +2,10 @@ from flask import Blueprint, request, jsonify
 import mysql.connector
 import json
 import numpy as np
-from AHP import AHP  # 确保 AHP.py 文件在同一目录或 Python 路径中
+from AHP import AHP
+import pytz
+from shared_models import AHPHistory, db  # 确保 AHP.py 文件在同一目录或 Python 路径中
+from flask_login import current_user, login_required
 
 ahp_bp = Blueprint('ahp', __name__)
 
@@ -63,6 +66,7 @@ def ahp_calculation():
         return jsonify({'error': str(e)}), 500
 
 @ahp_bp.route('/save_history', methods=['POST'])
+@login_required
 def save_history():
     try:
         data = request.get_json()
@@ -70,55 +74,71 @@ def save_history():
         response_data = data.get('response_data')
         alternative_names = request_data.get('alternative_names')
         criteria_names = request_data.get('criteria_names')
+        best_choice_name = response_data.get('best_choice_name')
+
         if not request_data or not response_data:
             return jsonify({'error': 'Invalid input data'}), 400
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        insert_query = "INSERT INTO ahp_history (alternative_names,criteria_names,request_data, response_data) VALUES (%s, %s,%s, %s)"
-        print(','.join(alternative_names))
-        cursor.execute(insert_query,(','.join(alternative_names),','.join(criteria_names), json.dumps(request_data), json.dumps(response_data)))
-        conn.commit()
-        
-        cursor.close()
-        conn.close()
+        # 创建 AHPHistory 实例
+        history_record = AHPHistory(
+            user_id=current_user.id,
+            alternative_names=','.join(alternative_names),
+            criteria_names=','.join(criteria_names),
+            request_data=json.dumps(request_data),
+            response_data=json.dumps(response_data),
+            best_choice_name=best_choice_name
+        )
+
+        # 添加并提交到数据库
+        db.session.add(history_record)
+        db.session.commit()
 
         return jsonify({'message': 'History saved successfully'}), 201
     except Exception as e:
-        print("异常信息：", str(e))           # 打印异常信息
-        print("异常参数：", e.args)           # 打印异常参数（元组形式）
+        db.session.rollback()  # 回滚事务
         return jsonify({'error': str(e)}), 500
 
 @ahp_bp.route('/ahp_history', methods=['GET'])
+@login_required
 def find_history():
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM ahp_history ORDER BY created_at DESC")
-        history = cursor.fetchall()
-        
-        cursor.close()
-        conn.close()
+        # 查询所有历史记录并按创建时间降序排列
+        history_records = AHPHistory.query.filter_by(user_id=current_user.id).order_by(AHPHistory.created_at.desc()).all()
+        utc = pytz.utc
+        beijing_tz = pytz.timezone('Asia/Shanghai')
+        # 将记录转换为 JSON 格式
+        history_list = [
+            {
+                'id': record.id,
+                'alternative_names': record.alternative_names,
+                'criteria_names': record.criteria_names,
+                'request_data': record.request_data,
+                'response_data': record.response_data,
+                'best_choice_name':record.best_choice_name,
+                'created_at': utc.localize(record.created_at).astimezone(beijing_tz).isoformat()
+            } for record in history_records
+        ]
 
-        return jsonify(history)
+        return jsonify(history_list), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
 @ahp_bp.route('/ahp_delete', methods=['GET'])
+@login_required
 def delete_record():
-    record_id = request.args.get('id', type=int)
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    try:
+        record_id = request.args.get('id', type=int)
+        history_record = AHPHistory.query.get(record_id)
 
-    # 删除记录
-    delete_query = "DELETE FROM ahp_history WHERE id = %s"
-    cursor.execute(delete_query, (record_id,))
-    conn.commit()
+        if not history_record:
+            return jsonify({'error': 'Record not found'}), 404
+        if not history_record.user_id==current_user.id:
+            return jsonify({'error': 'You are not allowed to access this record.'}), 403
+        db.session.delete(history_record)
+        db.session.commit()
 
-    cursor.close()
-    conn.close()
-    
-    return jsonify({'success': True, 'message': f'Record with id {record_id} deleted'})
+        return jsonify({'success': True, 'message': f'Record with id {record_id} deleted'}), 200
+    except Exception as e:
+        db.session.rollback()  # 回滚事务
+        return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)

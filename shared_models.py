@@ -1,5 +1,6 @@
 from datetime import datetime as dt
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import JSON
 from flask_login import UserMixin # type: ignore
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -25,6 +26,17 @@ class User(db.Model, UserMixin):
     def check_password(self, password):
         """验证用户输入的密码是否正确"""
         return check_password_hash(self.password_hash, password)
+class AHPHistory(db.Model):
+    __tablename__ = 'ahp_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    alternative_names = db.Column(db.String(255), nullable=False)
+    criteria_names = db.Column(db.String(255), nullable=False)
+    best_choice_name = db.Column(db.String(255), nullable=False)
+    request_data = db.Column(JSON, nullable=False)
+    response_data = db.Column(JSON, nullable=False)
+    created_at = db.Column(db.DateTime, default=dt.utcnow)
 
 class DecisionGroup(db.Model):
     id = db.Column(db.Integer, primary_key=True)
