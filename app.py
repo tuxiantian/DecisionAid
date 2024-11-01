@@ -1,3 +1,4 @@
+import base64
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_login import LoginManager, UserMixin, current_user, login_user, logout_user, login_required # type: ignore
 from flask_cors import CORS
@@ -11,6 +12,9 @@ from mermaid_utils import mermaid_bp
 import pymysql
 from shared_models import User, db
 from werkzeug.security import generate_password_hash, check_password_hash
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
 pymysql.install_as_MySQLdb()
 
 app = Flask(__name__, static_folder='build', template_folder='build')
@@ -29,6 +33,15 @@ app.register_blueprint(article_bp)
 app.register_blueprint(minio_bp)
 app.register_blueprint(balanced_decision_bp)
 app.register_blueprint(mermaid_bp)
+
+# 加载 RSA 私钥
+def load_private_key():
+    with open("private_key.pem", "rb") as key_file:
+        private_key = serialization.load_pem_private_key(
+            key_file.read(),
+            password=None
+        )
+    return private_key
 
 @app.route('/')
 def index():
@@ -63,7 +76,15 @@ def login():
     # 获取 JSON 数据
     data = request.get_json()
     username = data.get('username')
-    password = data.get('password')
+    encrypted_password = data.get('password')
+            # 加载私钥
+    private_key = load_private_key()
+
+    # 解密密码
+    password = private_key.decrypt(
+        base64.b64decode(encrypted_password),
+        padding.PKCS1v15()
+    ).decode('utf-8')
 
     # 查询用户
     user = User.query.filter_by(username=username).first()
