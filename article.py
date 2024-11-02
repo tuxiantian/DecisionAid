@@ -10,6 +10,7 @@ article_bp = Blueprint('article', __name__)
 def create_article():
     data = request.get_json()
     new_article = Article(
+        user_id=current_user.id,
         title=data['title'],
         content=data['content'],
         author=data['author'],
@@ -39,7 +40,7 @@ def get_articles():
     if tag:
         query = query.filter(Article.tags == tag)
 
-    paginated_articles = query.order_by(desc(Article.reference_count), desc(Article.created_at)).paginate(page=page, per_page=page_size, error_out=False)
+    paginated_articles = query.filter(Article.user_id==current_user.id).order_by(desc(Article.reference_count), desc(Article.created_at)).paginate(page=page, per_page=page_size, error_out=False)
     articles = paginated_articles.items
 
     results = [
@@ -108,6 +109,9 @@ def get_article(id):
     if not article:
         return jsonify({'error': 'Article not found'}), 404
 
+    if not article.user_id==current_user.id:
+        return jsonify({'error': 'You are not allowed to access this Article'}), 403
+    
     result = {
         'id': article.id,
         'title': article.title,
@@ -145,7 +149,8 @@ def update_article(id):
     article = Article.query.get(id)
     if not article:
         return jsonify({'error': 'Article not found'}), 404
-
+    if not article.user_id==current_user.id:
+        return jsonify({'error': 'You are not allowed to access this Article'}), 403
     data = request.get_json()
     article.title = data.get('title', article.title)
     article.content = data.get('content', article.content)
@@ -162,7 +167,8 @@ def delete_article(id):
     article = Article.query.get(id)
     if not article:
         return jsonify({'error': 'Article not found'}), 404
-
+    if not article.user_id==current_user.id:
+        return jsonify({'error': 'You are not allowed to access this Article'}), 403    
     db.session.delete(article)
     db.session.commit()
     return jsonify({'message': 'Article deleted successfully'}), 200
