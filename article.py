@@ -121,6 +121,25 @@ def get_article(id):
     }
     return jsonify(result), 200
 
+@article_bp.route('/platform_articles/<int:id>', methods=['GET'])
+def get_platform_article(id):
+    article = PlatformArticle.query.get(id)
+    if not article:
+        return jsonify({'error': 'Article not found'}), 404
+
+    result = {
+        'id': article.id,
+        'title': article.title,
+        'content': article.content,
+        'author': article.author,
+        'tags': article.tags,
+        'keywords': article.keywords,
+        'created_at': article.created_at,
+        'updated_at': article.updated_at,
+        'reference_count': article.reference_count
+    }
+    return jsonify(result), 200
+
 @article_bp.route('/articles/<int:id>', methods=['PUT'])
 def update_article(id):
     article = Article.query.get(id)

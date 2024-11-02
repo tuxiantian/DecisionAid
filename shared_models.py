@@ -124,6 +124,7 @@ class ChecklistAnswer(db.Model):
     question_id = db.Column(db.Integer, db.ForeignKey('checklist_question.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # 记录回答用户
     referenced_articles = db.Column(db.String(255), nullable=True)  # 引用的文章ID，以逗号分隔
+    referenced_platform_articles = db.Column(db.String(255), nullable=True) 
     answer = db.Column(db.Text, nullable=False)
 
 class ChecklistDecision(db.Model):

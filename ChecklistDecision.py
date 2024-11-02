@@ -1,5 +1,5 @@
 from flask import Flask, abort, request, jsonify, Blueprint
-from shared_models import Article, Checklist, DecisionGroup, GroupMembers, Review, User, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
+from shared_models import Article, Checklist, DecisionGroup, GroupMembers, PlatformArticle, Review, User, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
 from flask_login import current_user,login_required
 
 
@@ -147,6 +147,7 @@ def save_checklist_answers():
         question_id = answer.get('question_id')
         answer_text = answer.get('answer')
         referenced_articles = answer.get('referenced_articles', [])
+        referenced_platform_articles = answer.get('referenced_platform_articles', [])
         if not question_id or not answer_text:
             return jsonify({'error': 'Invalid answer data'}), 400
 
@@ -155,7 +156,8 @@ def save_checklist_answers():
             user_id=current_user.id,
             question_id=question_id,
             answer=answer_text,
-            referenced_articles=','.join(map(str, referenced_articles))
+            referenced_articles=','.join(map(str, referenced_articles)),
+            referenced_platform_articles=','.join(map(str, referenced_platform_articles))
         )
         db.session.add(answer_record)
         # 增加引用文章的引用计数
@@ -163,6 +165,10 @@ def save_checklist_answers():
             article = db.session.query(Article).filter_by(id=article_id).first()
             if article:
                 article.reference_count += 1
+        for article_id in referenced_platform_articles:
+            article = db.session.query(PlatformArticle).filter_by(id=article_id).first()
+            if article:
+                article.reference_count += 1        
     db.session.commit()
     return jsonify({'message': 'Checklist answers saved successfully'}), 200
 
@@ -210,13 +216,17 @@ def get_checklist_decision_details(user_id, decision_id):
     for answer in answers:
         print(f"Fetching user for user_id: {answer.user_id}")  # 调试用
         referenced_article_ids = answer.referenced_articles.split(',') if answer.referenced_articles else []
-
+        referenced_platform_article_ids = answer.referenced_platform_articles.split(',') if answer.referenced_platform_articles else []
         # 查询引用文章（如果存在）
         referenced_articles_data = []
         if referenced_article_ids:
             referenced_articles = Article.query.filter(Article.id.in_(referenced_article_ids)).all()
             referenced_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_articles]
 
+        referenced_platform_articles_data = []
+        if referenced_platform_article_ids:
+            referenced_platform_articles = PlatformArticle.query.filter(PlatformArticle.id.in_(referenced_platform_article_ids)).all()
+            referenced_platform_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_platform_articles]
         # 获取回答者信息
         user = User.query.get(answer.user_id)
 
@@ -225,7 +235,8 @@ def get_checklist_decision_details(user_id, decision_id):
             'user_id': answer.user_id,
             'username': user.username,
             'answer': answer.answer,
-            'referenced_articles': referenced_articles_data
+            'referenced_articles': referenced_articles_data,
+            'referenced_platform_articles':referenced_platform_articles_data
         })
 
     # 构建决策详情返回数据
