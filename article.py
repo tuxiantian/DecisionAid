@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, Blueprint
 from sqlalchemy import desc
-from shared_models import Article, db
+from shared_models import Article,PlatformArticle, db
 from datetime import datetime as dt
 from flask_login import current_user
 
@@ -40,6 +40,46 @@ def get_articles():
         query = query.filter(Article.tags == tag)
 
     paginated_articles = query.order_by(desc(Article.reference_count), desc(Article.created_at)).paginate(page=page, per_page=page_size, error_out=False)
+    articles = paginated_articles.items
+
+    results = [
+        {
+            'id': article.id,
+            'title': article.title,
+            'author': article.author,
+            'tags': article.tags,
+            'keywords': article.keywords,
+            'created_at': article.created_at,
+            'updated_at': article.updated_at,
+            'reference_count': article.reference_count
+        } for article in articles
+    ]
+
+    return jsonify({
+        'articles': results,
+        'total_pages': paginated_articles.pages,
+        'current_page': paginated_articles.page,
+        'total_items': paginated_articles.total
+    }), 200
+
+@article_bp.route('/platform_articles', methods=['GET'])
+def get_platform_articles():
+    search = request.args.get('search', '')
+    tag = request.args.get('tag', '')
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 10, type=int)
+
+    query = PlatformArticle.query
+
+    if search:
+        query = query.filter(
+            (PlatformArticle.title.ilike(f"%{search}%")) |
+            (PlatformArticle.keywords.ilike(f"%{search}%"))
+        )
+    if tag:
+        query = query.filter(PlatformArticle.tags == tag)
+
+    paginated_articles = query.order_by(desc(PlatformArticle.reference_count), desc(PlatformArticle.created_at)).paginate(page=page, per_page=page_size, error_out=False)
     articles = paginated_articles.items
 
     results = [

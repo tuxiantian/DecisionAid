@@ -78,6 +78,16 @@ class Article(db.Model):
     created_at = db.Column(db.DateTime, default=dt.utcnow)
     updated_at = db.Column(db.DateTime, default=dt.utcnow, onupdate=dt.utcnow)
 
+class PlatformArticle(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    author = db.Column(db.String(255), nullable=False)
+    tags = db.Column(db.String(255), nullable=True)
+    keywords = db.Column(db.String(255), nullable=True)
+    reference_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=dt.utcnow)
+    updated_at = db.Column(db.DateTime, default=dt.utcnow, onupdate=dt.utcnow)
 
 class TodoItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)

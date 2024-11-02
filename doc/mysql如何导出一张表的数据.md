@@ -25,7 +25,11 @@ mysqldump -u root -p decisions_db article > article_dump.sql
 如果你只想导出表的数据，而不包含表的结构，可以使用 `--no-create-info` 选项：
 
 ```sh
-mysqldump -u root -p --no-create-info decisions_db article > article_data_only.sql
+mysqldump -u root -p --default-character-set=utf8mb4 --no-create-info decisions_db article > article_data_only.sql
+```
+导入数据
+```
+mysql -u root -p decisions_db < article_data_only.sql
 ```
 
 #### 只导出表结构（不包含数据）：
