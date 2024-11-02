@@ -28,7 +28,7 @@ def get_articles():
     tag = request.args.get('tag', '')
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
-    print(current_user.id)
+
     query = Article.query
 
     if search:

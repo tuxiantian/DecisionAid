@@ -126,17 +126,17 @@ def get_checklist_details(checklist_id):
 
 
 @checklist_bp.route('/save_checklist_answers', methods=['POST'])
+@login_required
 def save_checklist_answers():
     data = request.get_json()
     checklist_id = data.get('checklist_id')
     decision_name = data.get('decision_name')
     final_decision = data.get('final_decision')
-    user_id = data.get('user_id', 1)  # 默认 user_id 为 1
     answers = data.get('answers')
 
     checklist_decision = ChecklistDecision(
         checklist_id=checklist_id,
-        user_id=user_id,
+        user_id=current_user.id,
         decision_name=decision_name,
         final_decision=final_decision
     )
@@ -152,6 +152,7 @@ def save_checklist_answers():
 
         answer_record = ChecklistAnswer(
             checklist_decision_id=checklist_decision.id,
+            user_id=current_user.id,
             question_id=question_id,
             answer=answer_text,
             referenced_articles=','.join(map(str, referenced_articles))
