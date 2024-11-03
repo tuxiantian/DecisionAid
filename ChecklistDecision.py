@@ -1,5 +1,6 @@
 from flask import Flask, abort, request, jsonify, Blueprint
-from shared_models import Article, Checklist, DecisionGroup, GroupMembers, PlatformArticle, Review, User, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
+from shared_models import Article, Checklist, DecisionGroup, GroupMembers, PlatformArticle, PlatformChecklist, PlatformChecklistQuestion, Review, User, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
+from datetime import datetime as dt
 from flask_login import current_user,login_required
 
 
@@ -11,7 +12,7 @@ def get_checklists():
     page_size = request.args.get('page_size', 10, type=int)
 
     # 查询主版本 (parent_id 为 null 表示主版本)
-    paginated_checklists = Checklist.query.filter_by(parent_id=None).order_by(Checklist.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
+    paginated_checklists = Checklist.query.filter_by(parent_id=None,user_id=current_user.id).order_by(Checklist.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
 
     checklist_data = []
     
@@ -47,6 +48,92 @@ def get_checklists():
         'total_items': paginated_checklists.total
     }), 200
 
+@checklist_bp.route('/platform_checklists', methods=['GET'])
+def get_platform_checklists():
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 10, type=int)
+
+    # 查询主版本 (parent_id 为 null 表示主版本)
+    paginated_checklists = PlatformChecklist.query.filter_by(parent_id=None).order_by(PlatformChecklist.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
+
+    checklist_data = []
+    
+    # 遍历主版本并查询其子版本
+    for checklist in paginated_checklists.items:
+        checklist_info = {
+            'id': checklist.id,
+            'name': checklist.name,
+            'description': checklist.description,
+            'version': checklist.version,
+            'can_update': True,
+            'versions': []  # 初始化子版本列表
+        }
+
+        # 查询当前主版本的子版本
+        child_checklists = PlatformChecklist.query.filter_by(parent_id=checklist.id).order_by(PlatformChecklist.version.desc()).all()
+        
+        # 将子版本添加到主版本中
+        for child in child_checklists:
+            checklist_info['versions'].append({
+                'id': child.id,
+                'version': child.version,
+                'description': child.description,
+                'can_update': False
+            })
+        
+        checklist_data.append(checklist_info)
+
+    return jsonify({
+        'checklists': checklist_data,
+        'total_pages': paginated_checklists.pages,
+        'current_page': paginated_checklists.page,
+        'total_items': paginated_checklists.total
+    }), 200
+
+@checklist_bp.route('/checklists/clone', methods=['POST'])
+def handle_clone_checklist():
+    try:
+        # 获取请求中的 PlatformChecklist ID
+        data = request.get_json()
+        platform_checklist_id = data.get('checklist_id')
+
+        if not platform_checklist_id:
+            return jsonify({"error": "PlatformChecklist ID are required"}), 400
+
+        # 查找要克隆的 PlatformChecklist
+        platform_checklist = PlatformChecklist.query.get(platform_checklist_id)
+        if not platform_checklist:
+            return jsonify({"error": "PlatformChecklist not found"}), 404
+
+        # 克隆 PlatformChecklist 到 Checklist
+        new_checklist = Checklist(
+            version=platform_checklist.version,
+            user_id=current_user.id,
+            name=platform_checklist.name,
+            description=platform_checklist.description,
+            mermaid_code=platform_checklist.mermaid_code,
+            created_at=dt.utcnow()
+        )
+        db.session.add(new_checklist)
+        db.session.commit()  # 提交以获取新 Checklist 的 ID
+
+        # 查找并克隆关联的 PlatformChecklistQuestion 到 ChecklistQuestion
+        platform_questions = PlatformChecklistQuestion.query.filter_by(checklist_id=platform_checklist.id).all()
+        for question in platform_questions:
+            new_question = ChecklistQuestion(
+                checklist_id=new_checklist.id,
+                question=question.question,
+                description=question.description
+            )
+            db.session.add(new_question)
+
+        db.session.commit()  # 提交所有更改
+
+        return jsonify({"message": "Checklist and questions cloned successfully!", "id": new_checklist.id}), 200
+
+    except Exception as e:
+        print("Error:", str(e))
+        return jsonify({"error": "An error occurred while cloning the checklist"}), 500
 
 
 @checklist_bp.route('/checklists', methods=['POST'])
@@ -56,12 +143,11 @@ def create_checklist():
     mermaid_code = data.get('mermaid_code')
     description = data.get('description')
     questions = data.get('questions')
-    user_id = data.get('user_id', 1)  # Default user_id to 1 if not provided
 
     if not name or not questions:
         return jsonify({'error': 'Checklist name and questions are required'}), 400
 
-    checklist = Checklist(user_id=user_id,name=name,mermaid_code=mermaid_code, description=description, version=1)
+    checklist = Checklist(user_id=current_user.id,name=name,mermaid_code=mermaid_code, description=description, version=1)
     db.session.add(checklist)
     db.session.commit()
 
@@ -85,6 +171,47 @@ def create_checklist():
 
 @checklist_bp.route('/checklists/<int:checklist_id>', methods=['GET'])
 def get_checklist_details(checklist_id):
+    """
+    获取最新 Checklist 的详细信息。
+    入参 checklist_id 是父版本的 Checklist ID，此接口会自动获取最新版本的数据。
+    """
+
+    # 获取当前 checklist 或返回 404
+    checklist = Checklist.query.get_or_404(checklist_id)
+    if not current_user.id==checklist.user_id:
+        return jsonify({'error': 'You are not allowed to access this Checklist'}), 403
+    # 获取所有相关版本的 Checklist
+    if checklist.parent_id:
+        versions = Checklist.query.filter(
+            (Checklist.parent_id == checklist.parent_id) | (Checklist.id == checklist.parent_id)
+        ).order_by(Checklist.version.desc()).all()
+    else:
+        versions = Checklist.query.filter(
+            (Checklist.parent_id == checklist.id) | (Checklist.id == checklist.id)
+        ).order_by(Checklist.version.desc()).all()
+
+    # 找到最新版本的 Checklist
+    latest_version = versions[0]  # 因为已按版本降序排序，第一个即为最新版本
+
+    # 获取最新版本的 ChecklistQuestion
+    questions = ChecklistQuestion.query.filter_by(checklist_id=latest_version.id).all()
+    questions_data = [{'id': question.id, 'question': question.question, 'description': question.description} for question in questions]
+
+    # 版本信息数据
+    versions_data = [{'id': version.id, 'version': version.version} for version in versions]
+
+    return jsonify({
+        'id': latest_version.id,
+        'name': latest_version.name,
+        'mermaid_code': latest_version.mermaid_code,
+        'description': latest_version.description,
+        'version': latest_version.version,
+        'questions': questions_data,
+        'versions': versions_data
+    }), 200
+
+@checklist_bp.route('/platform_checklists/<int:checklist_id>', methods=['GET'])
+def get_platform_checklist_details(checklist_id):
     """
     获取最新 Checklist 的详细信息。
     入参 checklist_id 是父版本的 Checklist ID，此接口会自动获取最新版本的数据。
@@ -122,8 +249,6 @@ def get_checklist_details(checklist_id):
         'questions': questions_data,
         'versions': versions_data
     }), 200
-
-
 
 @checklist_bp.route('/save_checklist_answers', methods=['POST'])
 @login_required
@@ -172,11 +297,11 @@ def save_checklist_answers():
     db.session.commit()
     return jsonify({'message': 'Checklist answers saved successfully'}), 200
 
-@checklist_bp.route('/checklist_answers/<int:user_id>', methods=['GET'])
-def get_user_checklist_answers(user_id):
+@checklist_bp.route('/checklist_answers', methods=['GET'])
+def get_user_checklist_answers():
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
-    checklist_decisions = ChecklistDecision.query.filter_by(user_id=user_id).order_by(ChecklistDecision.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
+    checklist_decisions = ChecklistDecision.query.filter_by(user_id=current_user.id).order_by(ChecklistDecision.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
     user_answers = []
     for decision in checklist_decisions:
         checklist = Checklist.query.get(decision.checklist_id)
@@ -192,11 +317,11 @@ def get_user_checklist_answers(user_id):
         'current_page': checklist_decisions.page,
         'total_items': checklist_decisions.total}), 200
 
-@checklist_bp.route('/checklist_answers/<int:user_id>/details/<int:decision_id>', methods=['GET'])
-def get_checklist_decision_details(user_id, decision_id):
+@checklist_bp.route('/checklist_answers/details/<int:decision_id>', methods=['GET'])
+def get_checklist_decision_details(decision_id):
     # 获取决策详情
     decision = ChecklistDecision.query.get_or_404(decision_id)
-    if decision.user_id != user_id:
+    if decision.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized access'}), 403
 
     # 获取所有问题，并构造字典
@@ -266,7 +391,8 @@ def delete_checklist_decision(id):
     decision = ChecklistDecision.query.get(id)
     if decision is None:
         abort(404, description="Decision not found")
-
+    if decision.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized access'}), 403
     try:
         # 删除与 decision 相关联的 review 记录
         Review.query.filter_by(decision_id=id).delete()
@@ -290,7 +416,7 @@ def update_checklist(id):
     
     # 查询 parent_id 等于参数 id 的最高版本
     latest_checklist = Checklist.query.filter_by(parent_id=id).order_by(Checklist.version.desc()).first()
-
+    
     # 如果找不到，使用当前的 id 对应的 checklist
     if latest_checklist is None:
         latest_checklist = Checklist.query.get(id)
@@ -298,7 +424,8 @@ def update_checklist(id):
     # 如果仍然没有找到，则返回 404
     if latest_checklist is None:
         abort(404, description="Checklist not found")
-
+    if latest_checklist.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized access'}), 403
     # 创建新版本的 checklist
     new_checklist = Checklist(
         name=latest_checklist.name,
@@ -395,7 +522,8 @@ def delete_checklist_with_children(checklist_id):
     # 检查是否为父版本
     if checklist.parent_id is not None:
         return jsonify({'error': 'This is not a parent checklist.'}), 400
-
+    if checklist.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized access'}), 403    
     try:
         # 找到所有相关的子版本
         all_versions = Checklist.query.filter(
@@ -421,7 +549,8 @@ def delete_single_checklist(checklist_id):
     仅删除指定的 checklist 子版本及其相关的 ChecklistQuestion、ChecklistAnswer、ChecklistDecision 和 Review 数据。
     """
     checklist = Checklist.query.get_or_404(checklist_id)
-
+    if checklist.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized access'}), 403
     try:
         # 删除关联数据
         delete_related_data(checklist.id)
@@ -454,15 +583,14 @@ def delete_related_data(checklist_id):
 def create_decision_group():
     data = request.get_json()
     name = data.get('name')
-    owner_id = data.get('owner_id')
     checklist_decision_id = data.get('checklist_decision_id')
 
-    if not name or not owner_id or not checklist_decision_id:
-        return jsonify({'error': 'Name, owner_id, and checklist_decision_id are required'}), 400
+    if not name or not checklist_decision_id:
+        return jsonify({'error': 'Name, and checklist_decision_id are required'}), 400
 
     decision_group = DecisionGroup(
         name=name,
-        owner_id=owner_id,
+        owner_id=current_user.id,
         checklist_decision_id=checklist_decision_id
     )
     db.session.add(decision_group)
@@ -470,27 +598,12 @@ def create_decision_group():
 
     return jsonify({'message': 'Decision group created successfully', 'group_id': decision_group.id}), 201
 
-@checklist_bp.route('/decision_groups/<int:group_id>/invite', methods=['POST'])
-def invite_member(group_id):
-    data = request.get_json()
-    user_id = data.get('user_id')  # 被邀请用户的ID
-    group = DecisionGroup.query.get_or_404(group_id)
-    
-    # 检查是否是组长操作
-    if group.owner_id != current_user.id:
-        return jsonify({'error': 'Only the group owner can invite members'}), 403
-
-    # 添加成员
-    member = GroupMembers(group_id=group_id, user_id=user_id)
-    db.session.add(member)
-    db.session.commit()
-    return jsonify({'message': 'Member invited successfully'}), 200
-
 @checklist_bp.route('/decision_groups/<int:group_id>/members', methods=['GET'])
 def get_decision_group_members(group_id):
     # 查询决策组是否存在
     decision_group = DecisionGroup.query.get_or_404(group_id)
-
+    if decision_group.owner_id != current_user.id:
+        return jsonify({'error': 'Unauthorized access'}), 403
     # 获取该决策组的成员列表
     members = decision_group.members
 
@@ -539,7 +652,8 @@ def get_checklist_questions(decision_id):
     decision = ChecklistDecision.query.get(decision_id)
     if not decision:
         return jsonify({"error": "Decision not found"}), 404
-
+    if decision.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized access'}), 403
     # 获取 checklist_id 对应的问题
     questions = ChecklistQuestion.query.filter_by(checklist_id=decision.checklist_id).all()
 
@@ -572,8 +686,8 @@ def answer_checklist_for_group(decision_id):
     db.session.commit()
     return jsonify({'message': 'Answers submitted successfully'}), 200
 
-@checklist_bp.route('/checklist_answers/group/<int:group_id>/decision/<int:decision_id>/responses', methods=['GET'])
-def get_group_answers(group_id, decision_id):
+@checklist_bp.route('/checklist_answers/group/decision/<int:decision_id>/responses', methods=['GET'])
+def get_group_answers(decision_id):
     """
     获取指定决策组中所有成员对于某个决策的回答详情，包括问题内容和引用文章标题。
     """

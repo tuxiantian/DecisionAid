@@ -105,13 +105,29 @@ class TodoItem(db.Model):
 
 class Checklist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     version = db.Column(db.Integer, nullable=False, default=1)
     parent_id = db.Column(db.Integer, db.ForeignKey('checklist.id'), nullable=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    mermaid_code = db.Column(db.Text, nullable=True)  # 存储流程图代码
+    created_at = db.Column(db.DateTime, default=dt.utcnow)
+
+class PlatformChecklist(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    version = db.Column(db.Integer, nullable=False, default=1)
+    parent_id = db.Column(db.Integer, db.ForeignKey('platform_checklist.id'), nullable=True)
     user_id = db.Column(db.Integer, nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(255), nullable=True)
     mermaid_code = db.Column(db.Text, nullable=True)  # 存储流程图代码
     created_at = db.Column(db.DateTime, default=dt.utcnow)
+
+class PlatformChecklistQuestion(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    checklist_id = db.Column(db.Integer, db.ForeignKey('platform_checklist.id'), nullable=False)
+    question = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.String(255), nullable=False)
 
 class ChecklistQuestion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
