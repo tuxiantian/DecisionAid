@@ -104,11 +104,14 @@ def handle_clone_checklist():
         platform_checklist = PlatformChecklist.query.get(platform_checklist_id)
         if not platform_checklist:
             return jsonify({"error": "PlatformChecklist not found"}), 404
-
+        platform_checklist.clone_count+=1;
+        
         # 克隆 PlatformChecklist 到 Checklist
         new_checklist = Checklist(
             version=platform_checklist.version,
             user_id=current_user.id,
+            is_clone=True,
+            platform_checklist_id=platform_checklist_id,
             name=platform_checklist.name,
             description=platform_checklist.description,
             mermaid_code=platform_checklist.mermaid_code,
@@ -147,7 +150,7 @@ def create_checklist():
     if not name or not questions:
         return jsonify({'error': 'Checklist name and questions are required'}), 400
 
-    checklist = Checklist(user_id=current_user.id,name=name,mermaid_code=mermaid_code, description=description, version=1)
+    checklist = Checklist(user_id=current_user.id,is_clone=False,name=name,mermaid_code=mermaid_code, description=description, version=1)
     db.session.add(checklist)
     db.session.commit()
 

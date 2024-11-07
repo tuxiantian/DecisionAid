@@ -26,6 +26,15 @@ class User(db.Model, UserMixin):
     def check_password(self, password):
         """验证用户输入的密码是否正确"""
         return check_password_hash(self.password_hash, password)
+# 定义逻辑错误模型
+class LogicError(db.Model):
+    __tablename__ = 'logic_errors'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    term = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    example = db.Column(db.Text, nullable=False)
+
 class AHPHistory(db.Model):
     __tablename__ = 'ahp_history'
 
@@ -111,6 +120,8 @@ class Checklist(db.Model):
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(255), nullable=True)
     mermaid_code = db.Column(db.Text, nullable=True)  # 存储流程图代码
+    is_clone = db.Column(db.Boolean, nullable=True)
+    platform_checklist_id = db.Column(db.Integer, db.ForeignKey('platform_checklist.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=dt.utcnow)
 
 class PlatformChecklist(db.Model):
@@ -121,6 +132,7 @@ class PlatformChecklist(db.Model):
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(255), nullable=True)
     mermaid_code = db.Column(db.Text, nullable=True)  # 存储流程图代码
+    clone_count = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=dt.utcnow)
 
 class PlatformChecklistQuestion(db.Model):
