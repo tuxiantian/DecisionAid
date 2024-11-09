@@ -35,6 +35,22 @@ class LogicError(db.Model):
     description = db.Column(db.Text, nullable=False)
     example = db.Column(db.Text, nullable=False)
 
+# 创建 analysis_content 表
+class AnalysisContent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    content = db.Column(db.Text, nullable=False)  # 添加摘要字段，保存分析内容的简要描述
+
+# 创建 analysis_data 表
+class AnalysisData(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    analysis_content_id = db.Column(db.Integer, db.ForeignKey('analysis_content.id'), nullable=False)
+    facts = db.Column(db.JSON)
+    opinion = db.Column(db.Text)
+    error = db.Column(db.String(255), nullable=False)
+    analysis_content = db.relationship('AnalysisContent', backref=db.backref('analysis_data', lazy=True))
+
 class AHPHistory(db.Model):
     __tablename__ = 'ahp_history'
 

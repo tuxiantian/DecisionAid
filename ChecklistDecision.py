@@ -104,8 +104,8 @@ def handle_clone_checklist():
         platform_checklist = PlatformChecklist.query.get(platform_checklist_id)
         if not platform_checklist:
             return jsonify({"error": "PlatformChecklist not found"}), 404
-        platform_checklist.clone_count+=1;
-        
+        platform_checklist.clone_count+=1
+
         # 克隆 PlatformChecklist 到 Checklist
         new_checklist = Checklist(
             version=platform_checklist.version,
