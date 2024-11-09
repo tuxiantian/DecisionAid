@@ -56,6 +56,7 @@ def get_todos():
         todo.status = 'ended'
     db.session.commit()  # 更新数据库
 
+    # 获取北京时区
     todos = TodoItem.query.filter(TodoItem.user_id == current_user.id).all()
     todos_data = []
     for todo in todos:
@@ -66,8 +67,8 @@ def get_todos():
             'status': todo.status,
             'importance': todo.importance,
             'urgency': todo.urgency,
-            'start_time': todo.start_time,
-            'end_time': todo.end_time,
+            'start_time': todo.start_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'end_time': todo.end_time.strftime('%Y-%m-%d %H:%M:%S'),
             'updated_at':todo.updated_at
         })
     return jsonify(todos_data), 200
