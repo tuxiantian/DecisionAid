@@ -7,7 +7,7 @@ from ChecklistDecision import checklist_bp
 from TodoList import todolist_bp
 from article import article_bp
 from minio_utils import minio_bp
-from BalancedDecisionMaker import balanced_decision_bp
+from BalancedDecision import balanced_decision_bp
 from mermaid_utils import mermaid_bp
 from logic_errors import logic_errors_bp
 import pymysql

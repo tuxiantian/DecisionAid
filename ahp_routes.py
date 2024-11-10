@@ -102,8 +102,10 @@ def save_history():
 @login_required
 def find_history():
     try:
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', 10, type=int)
         # 查询所有历史记录并按创建时间降序排列
-        history_records = AHPHistory.query.filter_by(user_id=current_user.id).order_by(AHPHistory.created_at.desc()).all()
+        history_records = AHPHistory.query.filter_by(user_id=current_user.id).order_by(AHPHistory.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
         utc = pytz.utc
         beijing_tz = pytz.timezone('Asia/Shanghai')
         # 将记录转换为 JSON 格式
@@ -119,7 +121,12 @@ def find_history():
             } for record in history_records
         ]
 
-        return jsonify(history_list), 200
+        return jsonify({
+        'history_list': history_list,
+        'total_pages': history_records.pages,
+        'current_page': history_records.page,
+        'total_items': history_records.total
+    }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
