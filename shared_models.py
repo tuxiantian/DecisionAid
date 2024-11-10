@@ -177,7 +177,7 @@ class ChecklistAnswer(db.Model):
 class ChecklistDecision(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     checklist_id = db.Column(db.Integer, db.ForeignKey('checklist.id'), nullable=False)
-    user_id = db.Column(db.Integer, nullable=False)
+    user_id = db.Column(db.Integer,db.ForeignKey('user.id'), nullable=False)
     decision_name = db.Column(db.String(100), nullable=False)
     final_decision = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=dt.utcnow)
@@ -194,7 +194,7 @@ class Review(db.Model):
 class Feedback(db.Model):
     __tablename__ = 'feedback'
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, nullable=False)  # 反馈用户的ID
+    user_id = db.Column(db.Integer,db.ForeignKey('user.id'), nullable=False)  # 反馈用户的ID
     description = db.Column(db.Text, nullable=False)  # 反馈内容
     contact_info = db.Column(db.String(255))  # 用户联系方式
     response = db.Column(db.Text)  # 运营人员的回复
