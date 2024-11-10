@@ -41,7 +41,7 @@ def save_fact_opinion_analysis():
                 analysis_content_id=new_analysis_content.id,
                 facts=json.dumps(item.get('facts'), ensure_ascii=False),
                 opinion=item.get('opinion'),
-                error=item.get('error').get('name')
+                logic_error_id=item.get('error').get('id')
             )
             db.session.add(new_analysis_data)
 
@@ -109,7 +109,7 @@ def get_analysis_detail(id):
             "data": [{
                 "facts": json.loads(data.facts),  # 将 JSON 字符串转换回列表
                 "opinion": data.opinion,
-                "error": data.error
+                "error": data.logic_error.name if data.logic_error else None
             } for data in analysis_data]
         }
 

@@ -48,8 +48,10 @@ class AnalysisData(db.Model):
     analysis_content_id = db.Column(db.Integer, db.ForeignKey('analysis_content.id'), nullable=False)
     facts = db.Column(db.JSON)
     opinion = db.Column(db.Text)
-    error = db.Column(db.String(255), nullable=False)
+    logic_error_id =  db.Column(db.Integer, db.ForeignKey('logic_errors.id'), nullable=False)
     analysis_content = db.relationship('AnalysisContent', backref=db.backref('analysis_data', lazy=True))
+    # 添加对 LogicError 的关系
+    logic_error = db.relationship('LogicError', backref=db.backref('analysis_data', lazy=True))
 
 class AHPHistory(db.Model):
     __tablename__ = 'ahp_history'
