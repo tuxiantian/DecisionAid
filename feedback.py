@@ -22,17 +22,3 @@ def submit_feedback():
     db.session.commit()
 
     return jsonify({"message": "反馈已提交"}), 201
-
-@feedback_bp.route('/api/admin/feedback/<int:id>/respond', methods=['POST'])
-def respond_to_feedback(id):
-    feedback = Feedback.query.get(id)
-    if not feedback:
-        return jsonify({"error": "Feedback not found"}), 404
-
-    response = request.json.get('response')
-    feedback.response = response
-    feedback.responded_at = datetime.utcnow()
-    feedback.status = "已回复"
-    db.session.commit()
-
-    return jsonify({"message": "回复已保存"}), 200
