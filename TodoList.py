@@ -55,7 +55,7 @@ def get_todos():
     for todo in expired_todos:
         todo.status = 'ended'
     db.session.commit()  # 更新数据库
-
+    db.session.flush()
     # 获取北京时区
     todos = TodoItem.query.filter(TodoItem.user_id == current_user.id).all()
     todos_data = []
