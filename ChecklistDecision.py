@@ -1,6 +1,7 @@
 from flask import Flask, abort, request, jsonify, Blueprint
 from shared_models import Article, Checklist, DecisionGroup, GroupMembers, PlatformArticle, PlatformChecklist, PlatformChecklistQuestion, Review, User, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
 from datetime import datetime as dt
+from sqlalchemy import func
 from flask_login import current_user,login_required
 
 
@@ -11,37 +12,51 @@ def get_checklists():
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
 
-    # 查询主版本 (parent_id 为 null 表示主版本)
-    paginated_checklists = Checklist.query.filter_by(parent_id=None,user_id=current_user.id).order_by(Checklist.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
+    # 查询主版本清单并统计每个清单的决定数量
+    query = db.session.query(
+        Checklist.id,
+        Checklist.name,
+        Checklist.description,
+        Checklist.version,
+        func.count(ChecklistDecision.id).label('decision_count')  # 统计决定数量
+    ).outerjoin(ChecklistDecision, ChecklistDecision.checklist_id == Checklist.id)  # 使用外连接避免漏掉没有决定的清单
+    query = query.filter(Checklist.parent_id == None, Checklist.user_id == current_user.id)
+    query = query.group_by(Checklist.id).order_by(Checklist.created_at.desc())
+    
+    # 分页处理
+    paginated_checklists = query.paginate(page=page, per_page=page_size, error_out=False)
 
     checklist_data = []
     
     # 遍历主版本并查询其子版本
     for checklist in paginated_checklists.items:
-        # 统计该清单的决定数量
-        decision_count = ChecklistDecision.query.filter_by(checklist_id=checklist.id).count()
         checklist_info = {
             'id': checklist.id,
             'name': checklist.name,
             'description': checklist.description,
             'version': checklist.version,
             'can_update': True,
-            'decision_count': decision_count, 
+            'decision_count': checklist.decision_count,  # 使用从查询中获取的决定数量
             'versions': []  # 初始化子版本列表
         }
 
-        # 查询当前主版本的子版本
-        child_checklists = Checklist.query.filter_by(parent_id=checklist.id).order_by(Checklist.version.desc()).all()
-        
+        # 查询当前主版本的子版本及其决定数量
+        child_checklists = db.session.query(
+            Checklist.id,
+            Checklist.version,
+            Checklist.description,
+            func.count(ChecklistDecision.id).label('decision_count')  # 统计子版本的决定数量
+        ).outerjoin(ChecklistDecision, ChecklistDecision.checklist_id == Checklist.id)
+        child_checklists = child_checklists.filter(Checklist.parent_id == checklist.id).group_by(Checklist.id).all()
+
         # 将子版本添加到主版本中
         for child in child_checklists:
-            child_decision_count = ChecklistDecision.query.filter_by(checklist_id=child.id).count()  # 子版本的决定数量
             checklist_info['versions'].append({
                 'id': child.id,
                 'version': child.version,
                 'description': child.description,
                 'can_update': False,
-                'decision_count': child_decision_count
+                'decision_count': child.decision_count  # 子版本的决定数量
             })
         
         checklist_data.append(checklist_info)
