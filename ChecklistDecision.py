@@ -18,12 +18,15 @@ def get_checklists():
     
     # 遍历主版本并查询其子版本
     for checklist in paginated_checklists.items:
+        # 统计该清单的决定数量
+        decision_count = ChecklistDecision.query.filter_by(checklist_id=checklist.id).count()
         checklist_info = {
             'id': checklist.id,
             'name': checklist.name,
             'description': checklist.description,
             'version': checklist.version,
             'can_update': True,
+            'decision_count': decision_count, 
             'versions': []  # 初始化子版本列表
         }
 
@@ -32,11 +35,13 @@ def get_checklists():
         
         # 将子版本添加到主版本中
         for child in child_checklists:
+            child_decision_count = ChecklistDecision.query.filter_by(checklist_id=child.id).count()  # 子版本的决定数量
             checklist_info['versions'].append({
                 'id': child.id,
                 'version': child.version,
                 'description': child.description,
-                'can_update': False
+                'can_update': False,
+                'decision_count': child_decision_count
             })
         
         checklist_data.append(checklist_info)
