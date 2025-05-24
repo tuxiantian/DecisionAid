@@ -33,37 +33,88 @@ def ahp_calculation():
     try:
         # 从请求体中解析 JSON 数据
         data = request.get_json()
+        if not data:
+            return jsonify({'error': '请求体必须为JSON格式'}), 400
+
         criteria_matrix = data.get('criteria_matrix')
         alternative_matrices = data.get('alternative_matrices')
-        alternative_names = data.get('alternative_names')  # 获取方案名称列表
+        alternative_names = data.get('alternative_names')
         
         # 检查数据有效性
-        if not criteria_matrix or not alternative_matrices:
-            return jsonify({'error': 'Invalid input data'}), 400
+        if not criteria_matrix or not alternative_matrices or not alternative_names:
+            return jsonify({
+                'error': '缺少必要参数',
+                'details': {
+                    'missing': [
+                        'criteria_matrix' if not criteria_matrix else None,
+                        'alternative_matrices' if not alternative_matrices else None,
+                        'alternative_names' if not alternative_names else None
+                    ]
+                }
+            }), 400
+
+        # 检查矩阵维度是否匹配
+        if len(alternative_matrices) != len(criteria_matrix):
+            return jsonify({
+                'error': '矩阵维度不匹配',
+                'details': f'准则矩阵数量({len(criteria_matrix)})与备选方案矩阵数量({len(alternative_matrices)})不一致'
+            }), 400
+
+        if len(alternative_names) != len(alternative_matrices[0]):
+            return jsonify({
+                'error': '方案名称与矩阵维度不匹配',
+                'details': f'方案名称数量({len(alternative_names)})与矩阵维度({len(alternative_matrices[0])})不一致'
+            }), 400
 
         # 转换矩阵为数值类型
-        numeric_criteria_matrix = convert_to_numeric(criteria_matrix)
-        numeric_alternative_matrices = [convert_to_numeric(matrix) for matrix in alternative_matrices]
+        try:
+            numeric_criteria_matrix = convert_to_numeric(criteria_matrix)
+            numeric_alternative_matrices = [convert_to_numeric(matrix) for matrix in alternative_matrices]
+        except ValueError as e:
+            return jsonify({
+                'error': '矩阵数据格式错误',
+                'details': str(e)
+            }), 400
 
-        # 创建 AHP 实例并计算优先权重向量
-        ahp_instance = AHP(numeric_criteria_matrix, numeric_alternative_matrices)
-        priority_vector = ahp_instance.calculate_priority_vector()
-        # 找到最优方案的索引并获取相应名称
-        best_choice_index = int(np.argmax(priority_vector))
-        best_choice_name = alternative_names[best_choice_index]
+        # 创建 AHP 实例并计算
+        try:
+            ahp_instance = AHP(numeric_criteria_matrix, numeric_alternative_matrices)
+            priority_vector = ahp_instance.calculate_priority_vector()
+            
+            # 检查计算结果有效性
+            if not all(0 <= x <= 1 for x in priority_vector):
+                return jsonify({
+                    'error': '计算结果异常',
+                    'details': '优先级向量值应在0到1之间'
+                }), 400
 
-        # 返回优先权重向量作为 JSON 格式的响应
-        result = {
-            'priority_vector': priority_vector.tolist(),
-            'best_choice_name': best_choice_name  # 以名称形式返回最优方案
-        }
-        return jsonify(result)
+            best_choice_index = int(np.argmax(priority_vector))
+            best_choice_name = alternative_names[best_choice_index]
 
-    except ValueError as ve:
-        # 处理一致性检验失败的情况
-        return jsonify({'error': str(ve)}), 400
+            return jsonify({
+                'priority_vector': priority_vector.tolist(),
+                'best_choice_name': best_choice_name,
+                'status': 'success'
+            })
+
+        except ValueError as e:
+            return jsonify({
+                'error': 'AHP计算错误',
+                'details': str(e),
+                'type': 'calculation_error'
+            }), 400
+        except Exception as e:
+            return jsonify({
+                'error': 'AHP处理过程中发生意外错误',
+                'details': str(e),
+                'type': 'unexpected_error'
+            }), 500
+
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': '服务器内部错误',
+            'details': str(e)
+        }), 500
 
 @ahp_bp.route('/save_history', methods=['POST'])
 @login_required
