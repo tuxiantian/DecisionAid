@@ -106,14 +106,43 @@ def delete_todo(id, todo):
 def get_completed_todos():
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
+    start_time = request.args.get('start_time', None)
+    end_time = request.args.get('end_time', None)
     
-    # 使用分页获取已完成的待办事项，按更新时间倒序排列
-    completed_todos_query = TodoItem.query.filter_by(status='completed',user_id=current_user.id).order_by(TodoItem.updated_at.desc())
+    # 基础查询：已完成且属于当前用户的待办事项
+    completed_todos_query = TodoItem.query.filter_by(
+        status='completed',
+        user_id=current_user.id
+    )
+    
+    # 添加时间范围过滤条件
+    if start_time:
+        try:
+            start_time = datetime.fromisoformat(start_time)
+            completed_todos_query = completed_todos_query.filter(
+                TodoItem.updated_at >= start_time
+            )
+        except ValueError:
+            return jsonify({'error': 'Invalid start_time format'}), 400
+    
+    if end_time:
+        try:
+            end_time = datetime.fromisoformat(end_time)
+            completed_todos_query = completed_todos_query.filter(
+                TodoItem.updated_at <= end_time
+            )
+        except ValueError:
+            return jsonify({'error': 'Invalid end_time format'}), 400
+    
+    # 按更新时间倒序排列
+    completed_todos_query = completed_todos_query.order_by(TodoItem.updated_at.desc())
     
     # 实现分页
-    pagination = completed_todos_query.paginate(page=page,
+    pagination = completed_todos_query.paginate(
+        page=page,
         per_page=page_size,
-        error_out=False)
+        error_out=False
+    )
 
     results = [{
         'id': todo.id,
@@ -136,14 +165,43 @@ def get_completed_todos():
 def get_ended_todos():
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
+    start_time = request.args.get('start_time', None)
+    end_time = request.args.get('end_time', None)
     
-    # 使用分页获取已完成的待办事项，按更新时间倒序排列
-    completed_todos_query = TodoItem.query.filter_by(status='ended',user_id=current_user.id).order_by(TodoItem.updated_at.desc())
+    # 基础查询：已结束且属于当前用户的待办事项
+    ended_todos_query = TodoItem.query.filter_by(
+        status='ended',
+        user_id=current_user.id
+    )
+    
+    # 添加时间范围过滤条件
+    if start_time:
+        try:
+            start_time = datetime.fromisoformat(start_time)
+            ended_todos_query = ended_todos_query.filter(
+                TodoItem.updated_at >= start_time
+            )
+        except ValueError:
+            return jsonify({'error': 'Invalid start_time format'}), 400
+    
+    if end_time:
+        try:
+            end_time = datetime.fromisoformat(end_time)
+            ended_todos_query = ended_todos_query.filter(
+                TodoItem.updated_at <= end_time
+            )
+        except ValueError:
+            return jsonify({'error': 'Invalid end_time format'}), 400
+    
+    # 按更新时间倒序排列
+    ended_todos_query = ended_todos_query.order_by(TodoItem.updated_at.desc())
     
     # 实现分页
-    pagination = completed_todos_query.paginate(page=page,
+    pagination = ended_todos_query.paginate(
+        page=page,
         per_page=page_size,
-        error_out=False)
+        error_out=False
+    )
 
     results = [{
         'id': todo.id,
