@@ -3,8 +3,31 @@ from sqlalchemy import desc
 from shared_models import Inspiration,Reflection, db
 from datetime import datetime as dt
 from flask_login import current_user, login_required
-
+from sqlalchemy import func
 inspiration_bp = Blueprint('inspiration', __name__)
+
+@inspiration_bp.route('/api/inspirations/random', methods=['GET'])
+def get_random_inspirations():
+    """随机获取2条启发内容"""
+    try:
+        # 使用SQLAlchemy的func.random() (MySQL是RAND(), PostgreSQL是random())
+        random_inspirations = Inspiration.query.order_by(
+            func.rand()  # MySQL使用func.rand()，PostgreSQL使用func.random()
+        ).limit(2).all()
+        
+        result = [{
+            'id': item.id,
+            'type': item.type,
+            'content': item.content,
+            'created_at': item.created_at.isoformat()
+        } for item in random_inspirations]
+        
+        return jsonify({
+            'inspirations': result,
+            'count': len(result)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @inspiration_bp.route('/api/inspirations', methods=['GET'])
 def get_inspirations():
