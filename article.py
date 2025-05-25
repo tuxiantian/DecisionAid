@@ -2,11 +2,12 @@ from flask import Flask, request, jsonify, Blueprint
 from sqlalchemy import desc
 from shared_models import Article,PlatformArticle, db
 from datetime import datetime as dt
-from flask_login import current_user
+from flask_login import current_user, login_required
 
 article_bp = Blueprint('article', __name__)
 
 @article_bp.route('/articles', methods=['POST'])
+@login_required
 def create_article():
     data = request.get_json()
     new_article = Article(
@@ -24,6 +25,7 @@ def create_article():
     return jsonify({'message': 'Article created successfully', 'article': data}), 201
 
 @article_bp.route('/articles', methods=['GET'])
+@login_required
 def get_articles():
     search = request.args.get('search', '')
     tag = request.args.get('tag', '')
@@ -104,7 +106,9 @@ def get_platform_articles():
     }), 200
 
 @article_bp.route('/articles/<int:id>', methods=['GET'])
+@login_required
 def get_article(id):
+    print(f"Current User: {current_user}, Is Authenticated: {current_user.is_authenticated}")
     article = Article.query.get(id)
     if not article:
         return jsonify({'error': 'Article not found'}), 404
@@ -145,6 +149,7 @@ def get_platform_article(id):
     return jsonify(result), 200
 
 @article_bp.route('/articles/<int:id>', methods=['PUT'])
+@login_required
 def update_article(id):
     article = Article.query.get(id)
     if not article:
@@ -163,6 +168,7 @@ def update_article(id):
     return jsonify({'message': 'Article updated successfully'}), 200
 
 @article_bp.route('/articles/<int:id>', methods=['DELETE'])
+@login_required
 def delete_article(id):
     article = Article.query.get(id)
     if not article:

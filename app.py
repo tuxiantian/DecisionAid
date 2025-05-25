@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives import hashes
 pymysql.install_as_MySQLdb()
 
 app = Flask(__name__, static_folder='build', template_folder='build')
-CORS(app, supports_credentials=True)
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
 
 # 初始化 Flask-Login
 login_manager = LoginManager()
@@ -141,6 +141,7 @@ def register():
 @login_required
 def profile():
     return jsonify({
+        'id': current_user.id,
         'username': current_user.username,
         'email': current_user.email,
     })
