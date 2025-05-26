@@ -73,6 +73,7 @@ def get_reflections(id):
     })
 
 @inspiration_bp.route('/api/reflections', methods=['POST'])
+@login_required
 def create_reflection():
     """创建新的感想"""
     data = request.get_json()
@@ -86,6 +87,7 @@ def create_reflection():
         return jsonify({'error': 'Inspiration not found'}), 404
     
     reflection = Reflection(
+        user_id=current_user.id,
         content=data['content'],
         inspiration_id=data['inspiration_id']
     )
@@ -95,12 +97,14 @@ def create_reflection():
     
     return jsonify({
         'id': reflection.id,
+        'user_id': current_user.id,
         'content': reflection.content,
         'inspiration_id': reflection.inspiration_id,
         'created_at': reflection.created_at.isoformat()
     }), 201
 
 @inspiration_bp.route('/api/reflections/<int:id>', methods=['PUT'])
+@login_required
 def update_reflection(id):
     """更新感想内容"""
     reflection = Reflection.query.get_or_404(id)
@@ -119,6 +123,7 @@ def update_reflection(id):
     })
 
 @inspiration_bp.route('/api/reflections/<int:id>', methods=['DELETE'])
+@login_required
 def delete_reflection(id):
     """删除感想"""
     reflection = Reflection.query.get_or_404(id)
