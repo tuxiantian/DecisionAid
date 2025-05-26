@@ -56,15 +56,22 @@ def get_inspirations():
 
 @inspiration_bp.route('/api/inspirations/<int:id>/reflections', methods=['GET'])
 def get_reflections(id):
-    """获取某个启发内容的所有感想"""
+    """获取某个启发内容的所有感想（按更新时间降序排列）"""
     inspiration = Inspiration.query.get_or_404(id)
+    
+    # 使用 Python 排序（适用于少量数据）
+    sorted_reflections = sorted(
+        inspiration.reflections,
+        key=lambda r: r.updated_at,
+        reverse=True  # 降序
+    )
     
     reflections = [{
         'id': r.id,
         'content': r.content,
         'created_at': r.created_at.isoformat(),
         'updated_at': r.updated_at.isoformat()
-    } for r in inspiration.reflections]
+    } for r in sorted_reflections]
     
     return jsonify({
         'inspiration_id': id,
@@ -100,7 +107,8 @@ def create_reflection():
         'user_id': current_user.id,
         'content': reflection.content,
         'inspiration_id': reflection.inspiration_id,
-        'created_at': reflection.created_at.isoformat()
+        'created_at': reflection.created_at.isoformat(),
+        'updated_at': reflection.updated_at.isoformat()
     }), 201
 
 @inspiration_bp.route('/api/reflections/<int:id>', methods=['PUT'])
