@@ -15,7 +15,8 @@ def get_my_reflections():
     """
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 2, type=int)
-    
+    search = request.args.get('search')
+
     # 获取每个启发的最新感想
     subquery = db.session.query(
         Reflection.inspiration_id,
@@ -33,17 +34,25 @@ def get_my_reflections():
              (Reflection.inspiration_id == subquery.c.inspiration_id) &
              (Reflection.updated_at == subquery.c.max_updated_at))\
         .filter(Reflection.user_id == current_user.id)\
-        .order_by(Reflection.updated_at.desc())
+        
+    if search:
+        query = query.filter(Reflection.content.ilike(f'%{search}%'))
     
+    query.order_by(Reflection.updated_at.desc())
     # 分页
     paginated = query.paginate(page=page, per_page=per_page, error_out=False)
     
     # 获取总启发数（用户写过感想的）
-    total_inspirations = db.session.query(
+    count_query = db.session.query(
         func.count(db.distinct(Reflection.inspiration_id))
     ).filter(
         Reflection.user_id == current_user.id
-    ).scalar()
+    )
+    
+    if search:
+        count_query = count_query.filter(Reflection.content.ilike(f'%{search}%'))
+    
+    total_inspirations = count_query.scalar()
     
     data = {
         'reflections': [{
