@@ -220,6 +220,7 @@ class Reflection(db.Model):
     __tablename__ = 'reflections'
     
     id = db.Column(db.Integer, primary_key=True)
+    type = db.Column(db.String(20), nullable=False)  # 'text' 或 'image'
     user_id = db.Column(db.Integer, nullable=False)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=dt.utcnow)

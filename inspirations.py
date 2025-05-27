@@ -34,8 +34,11 @@ def get_inspirations():
     """获取启发内容列表（分页）"""
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 2, type=int)
-    
-    pagination = Inspiration.query.order_by(
+    search = request.args.get('search')
+    query = Inspiration.query
+    if search:
+        query = query.filter(Inspiration.content.ilike(f"%{search}%"))
+    pagination = query.order_by(
         Inspiration.updated_at.desc()
     ).paginate(page=page, per_page=per_page, error_out=False)
     
@@ -68,6 +71,7 @@ def get_reflections(id):
     
     reflections = [{
         'id': r.id,
+        'type':r.type,
         'content': r.content,
         'created_at': r.created_at.isoformat(),
         'updated_at': r.updated_at.isoformat()
@@ -95,6 +99,7 @@ def create_reflection():
     
     reflection = Reflection(
         user_id=current_user.id,
+        type=data['type'],
         content=data['content'],
         inspiration_id=data['inspiration_id']
     )
@@ -104,6 +109,7 @@ def create_reflection():
     
     return jsonify({
         'id': reflection.id,
+        'type':reflection.type,
         'user_id': current_user.id,
         'content': reflection.content,
         'inspiration_id': reflection.inspiration_id,
@@ -122,10 +128,12 @@ def update_reflection(id):
         return jsonify({'error': 'Content is required'}), 400
     
     reflection.content = data['content']
+    reflection.type = data['type']
     db.session.commit()
     
     return jsonify({
         'id': reflection.id,
+        'type': reflection.type,
         'content': reflection.content,
         'updated_at': reflection.updated_at.isoformat()
     })

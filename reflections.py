@@ -48,6 +48,7 @@ def get_my_reflections():
     data = {
         'reflections': [{
             'id': r.id,
+            'type': r.type,
             'content': r.content,
             'created_at': r.created_at.isoformat(),
             'updated_at': r.updated_at.isoformat(),
@@ -102,6 +103,7 @@ def get_random_reflections():
             inspiration = Inspiration.query.get(insp_id[0])
             reflections.append({
                 'id': reflection.id,
+                'type': reflection.type,
                 'content': reflection.content,
                 'created_at': reflection.created_at.isoformat(),
                 'updated_at': reflection.updated_at.isoformat(),
