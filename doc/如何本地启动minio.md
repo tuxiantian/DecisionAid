@@ -31,7 +31,9 @@ docker pull minio/minio
 运行 MinIO 容器：
 
 使用以下命令启动 MinIO 容器：
+```
 docker run -p 9000:9000 --name minio1 minio/minio server /data
+```
 这将在默认端口 9000 上启动 MinIO 服务器，并且数据将存储在容器的 /data 目录中。
 访问 MinIO 控制台：
 
