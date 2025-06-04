@@ -6,8 +6,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
 
-class User(db.Model, UserMixin):
-    __tablename__ = 'user'
+class AdminUser(db.Model, UserMixin):
+    __tablename__ = 'admin_user'
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)  # 用户名
@@ -17,6 +17,30 @@ class User(db.Model, UserMixin):
     created_at = db.Column(db.DateTime, default=dt.utcnow)       # 创建时间
     updated_at = db.Column(db.DateTime, onupdate=dt.utcnow)      # 更新时间
 
+    def set_password(self, password):
+        """使用密码哈希存储密码"""
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        """验证用户输入的密码是否正确"""
+        return check_password_hash(self.password_hash, password)
+    
+class User(db.Model, UserMixin):
+    __tablename__ = 'user'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)  # 用户名
+    email = db.Column(db.String(120), unique=True, nullable=False)     # 邮箱
+    password_hash = db.Column(db.String(168), nullable=False)          # 密码哈希
+    avatar_url = db.Column(db.String(255), nullable=True)              # 头像URL
+    is_active = db.Column(db.Boolean, default=True)  # 账户是否激活
+    is_frozen = db.Column(db.Boolean, default=False)  # 账户是否被冻结
+    frozen_until = db.Column(db.DateTime, nullable=True)  # 冻结截止时间
+    created_at = db.Column(db.DateTime, default=dt.utcnow)       # 创建时间
+    updated_at = db.Column(db.DateTime, onupdate=dt.utcnow)      # 更新时间
+
+    # 冻结记录关系
+    freeze_records = db.relationship('FreezeRecord', back_populates='user', lazy='dynamic',foreign_keys='FreezeRecord.user_id')
     # 手动定义反向关系
     decision_groups = db.relationship('DecisionGroup', secondary='group_members', back_populates='members')
     def set_password(self, password):
@@ -26,6 +50,32 @@ class User(db.Model, UserMixin):
     def check_password(self, password):
         """验证用户输入的密码是否正确"""
         return check_password_hash(self.password_hash, password)
+    @property
+    def is_active(self):
+        # 检查账户是否有效的逻辑
+        if self.is_frozen:
+            if self.frozen_until is None:  # 永久冻结
+                return False
+            if self.frozen_until > dt.utcnow():  # 临时冻结未到期
+                return False
+        return True 
+
+class FreezeRecord(db.Model):
+    __tablename__ = 'freeze_record'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    action = db.Column(db.String(10), nullable=False)  # 'freeze' 或 'unfreeze'
+    reason = db.Column(db.String(500), nullable=False)
+    duration = db.Column(db.String(20), nullable=True)  # '1week', '1month', '1year', 'permanent'
+    frozen_until = db.Column(db.DateTime, nullable=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admin_user.id'), nullable=False)  # 操作的管理员ID
+    created_at = db.Column(db.DateTime, default=dt.utcnow)
+
+    # 关系
+    user = db.relationship('User', back_populates='freeze_records', foreign_keys=[user_id])
+    admin = db.relationship('AdminUser', foreign_keys=[admin_id])
+    
 # 定义逻辑错误模型
 class LogicError(db.Model):
     __tablename__ = 'logic_errors'

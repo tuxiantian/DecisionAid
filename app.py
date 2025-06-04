@@ -14,7 +14,8 @@ from feedback import feedback_bp
 from inspirations import inspiration_bp
 from reflections import reflections_bp
 import pymysql
-from shared_models import User, db
+from shared_models import User,FreezeRecord, db
+from datetime import datetime as dt, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -22,11 +23,17 @@ from cryptography.hazmat.primitives import hashes
 pymysql.install_as_MySQLdb()
 
 app = Flask(__name__, static_folder='build', template_folder='build')
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
-
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": "http://localhost:3000"}})
+app.config.update(
+    SESSION_COOKIE_SECURE=False,  # 开发环境可以设为False，生产环境应为True
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='None',  # 或者 'None' 如果使用跨站
+    PERMANENT_SESSION_LIFETIME=timedelta(days=1)  # 会话有效期
+)
 # 初始化 Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
+login_manager.session_protection = "strong" 
 
 app.config.from_pyfile('config.py')
 db.init_app(app)
@@ -86,25 +93,60 @@ def login():
     data = request.get_json()
     username = data.get('username')
     encrypted_password = data.get('password')
-            # 加载私钥
+    # 加载私钥
     private_key = load_private_key()
 
     # 解密密码
-    password = private_key.decrypt(
-        base64.b64decode(encrypted_password),
-        padding.PKCS1v15()
-    ).decode('utf-8')
+    try:
+        private_key = load_private_key()
+        password = private_key.decrypt(
+            base64.b64decode(encrypted_password),
+            padding.PKCS1v15()
+        ).decode('utf-8')
+    except Exception as e:
+        return jsonify({'message': '解密失败', 'error': str(e)}), 400
 
     # 查询用户
     user = User.query.filter_by(username=username).first()
-    
+    if not user:
+        return jsonify({'message': '用户不存在'}), 401
+    # 检查账户冻结状态
+    if user.is_frozen:
+        if user.frozen_until is None:  # 永久冻结
+            return jsonify({
+                'message': '账户已被永久冻结',
+                'is_frozen': True,
+                'frozen_until': None,
+                'reason': get_latest_freeze_reason(user.id)  # 获取最新冻结原因
+            }), 403
+        elif user.frozen_until > dt.utcnow():  # 临时冻结未到期
+            return jsonify({
+                'message': f'账户已被冻结，解冻时间: {user.frozen_until.strftime("%Y-%m-%d %H:%M:%S")}',
+                'is_frozen': True,
+                'frozen_until': user.frozen_until.isoformat(),
+                'reason': get_latest_freeze_reason(user.id)
+            }), 403
+        else:  # 冻结已过期但标记未清除
+            user.is_frozen = False
+            user.frozen_until = None
+            db.session.commit()
     # 验证用户和密码
     if user and user.check_password(password):
         login_user(user)  # 登录用户
-        return jsonify({'message': 'Login successful', 'user_id': user.id,'username':username}), 200
+        return jsonify({'message': 'Login successful', 'user_id': user.id,'username':username,
+            'is_frozen': False}), 200
 
     # 登录失败
-    return jsonify({'message': 'Invalid credentials'}), 401
+    return jsonify({'message': '用户名或密码错误'}), 401
+
+def get_latest_freeze_reason(user_id):
+    """获取用户最新的冻结原因"""
+    record = FreezeRecord.query.filter_by(
+        user_id=user_id, 
+        action='freeze'
+    ).order_by(FreezeRecord.created_at.desc()).first()
+    return record.reason if record else '未知原因'
+
 @app.route('/logout', methods=['POST'])
 def logout():
     logout_user()  # 使用 Flask-Login 的 logout_user() 退出用户
