@@ -196,6 +196,7 @@ class Feedback(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer,db.ForeignKey('user.id'), nullable=False)  # 反馈用户的ID
     description = db.Column(db.Text, nullable=False)  # 反馈内容
+    attachments = db.Column(db.JSON)  # 存储文件URL数组
     contact_info = db.Column(db.String(255))  # 用户联系方式
     response = db.Column(db.Text)  # 运营人员的回复
     created_at = db.Column(db.DateTime, default=dt.utcnow)

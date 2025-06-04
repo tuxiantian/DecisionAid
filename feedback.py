@@ -11,17 +11,22 @@ def submit_feedback():
     user_id = current_user.id
     description = data.get('description')
     contact_info = data.get('contact_info')
-
+    attachments = data.get('attachments', [])  # 接收文件URL数组
+    if not description:
+        return jsonify({'error': 'Description is required'}), 400
+    
     feedback = Feedback(
         user_id=user_id,
         description=description,
+        attachments=attachments,
         contact_info=contact_info,
         created_at=datetime.utcnow()
     )
     db.session.add(feedback)
     db.session.commit()
 
-    return jsonify({"message": "反馈已提交"}), 201
+    return jsonify({"message": "反馈已提交",
+            'feedback_id': feedback.id}), 200
 
 @feedback_bp.route('/api/my_feedback', methods=['GET'])
 @login_required  # 确保用户已登录
@@ -35,6 +40,7 @@ def get_user_feedback():
     feedback_data = [{
         "id": fb.id,
         "description": fb.description,
+        "attachments": fb.attachments,
         "response": fb.response,
         "status": fb.status,
         "created_at": fb.created_at,
