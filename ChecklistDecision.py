@@ -8,6 +8,7 @@ from flask_login import current_user,login_required
 checklist_bp = Blueprint('checklist', __name__)
 
 @checklist_bp.route('/checklists', methods=['GET'])
+@login_required
 def get_checklists():
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
@@ -111,6 +112,7 @@ def get_platform_checklists():
     }), 200
 
 @checklist_bp.route('/checklists/clone', methods=['POST'])
+@login_required
 def handle_clone_checklist():
     try:
         # 获取请求中的 PlatformChecklist ID
@@ -160,6 +162,7 @@ def handle_clone_checklist():
 
 
 @checklist_bp.route('/checklists', methods=['POST'])
+@login_required
 def create_checklist():
     data = request.get_json()
     name = data.get('name')
@@ -193,6 +196,7 @@ def create_checklist():
     return jsonify({'message': 'Checklist created successfully', 'checklist_id': checklist.id}), 201
 
 @checklist_bp.route('/checklists/<int:checklist_id>', methods=['GET'])
+@login_required
 def get_checklist_details(checklist_id):
     """
     获取最新 Checklist 的详细信息。
@@ -321,6 +325,7 @@ def save_checklist_answers():
     return jsonify({'message': 'Checklist answers saved successfully'}), 200
 
 @checklist_bp.route('/checklist_answers', methods=['GET'])
+@login_required
 def get_user_checklist_answers():
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('page_size', 10, type=int)
@@ -341,6 +346,7 @@ def get_user_checklist_answers():
         'total_items': checklist_decisions.total}), 200
 
 @checklist_bp.route('/checklist_answers/details/<int:decision_id>', methods=['GET'])
+@login_required
 def get_checklist_decision_details(decision_id):
     # 获取决策详情
     decision = ChecklistDecision.query.get_or_404(decision_id)
@@ -410,6 +416,7 @@ def get_checklist_decision_details(decision_id):
 
 
 @checklist_bp.route('/checklist_answers/<int:id>', methods=['DELETE'])
+@login_required
 def delete_checklist_decision(id):
     decision = ChecklistDecision.query.get(id)
     if decision is None:
@@ -434,6 +441,7 @@ def delete_checklist_decision(id):
 
     
 @checklist_bp.route('/checklists/<int:id>', methods=['PUT'])
+@login_required
 def update_checklist(id):
     data = request.get_json()
     
@@ -487,6 +495,7 @@ def update_checklist(id):
  
     
 @checklist_bp.route('/reviews', methods=['POST'])
+@login_required
 def create_review():
     data = request.get_json()
     decision_id = data.get('decision_id')
@@ -513,6 +522,7 @@ def create_review():
     return jsonify({'message': 'Review created successfully', 'review': review.id}), 201
 
 @checklist_bp.route('/reviews/<int:decision_id>', methods=['GET'])
+@login_required
 def get_reviews(decision_id):
     reviews = Review.query.filter_by(decision_id=decision_id).all()
     reviews_data = []
@@ -536,6 +546,7 @@ def get_reviews(decision_id):
     return jsonify(reviews_data), 200
 
 @checklist_bp.route('/checklists/<int:checklist_id>/delete-with-children', methods=['DELETE'])
+@login_required
 def delete_checklist_with_children(checklist_id):
     """
     删除父版本及其所有子版本，以及关联的 ChecklistQuestion、ChecklistAnswer、ChecklistDecision 和 Review 数据。
@@ -567,6 +578,7 @@ def delete_checklist_with_children(checklist_id):
 
 
 @checklist_bp.route('/checklists/<int:checklist_id>', methods=['DELETE'])
+@login_required
 def delete_single_checklist(checklist_id):
     """
     仅删除指定的 checklist 子版本及其相关的 ChecklistQuestion、ChecklistAnswer、ChecklistDecision 和 Review 数据。
@@ -603,6 +615,7 @@ def delete_related_data(checklist_id):
         db.session.delete(decision)
 
 @checklist_bp.route('/decision_groups', methods=['POST'])
+@login_required
 def create_decision_group():
     data = request.get_json()
     name = data.get('name')
@@ -694,6 +707,7 @@ def get_checklist_questions(decision_id):
     return jsonify(question_data)
 
 @checklist_bp.route('/checklist_answers/decision/<int:decision_id>', methods=['POST'])
+@login_required
 def answer_checklist_for_group(decision_id):
     data = request.get_json()
     answers = data.get('answers')
