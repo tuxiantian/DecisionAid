@@ -27,7 +27,7 @@ CORS(app, supports_credentials=True, resources={r"/*": {"origins": "http://local
 app.config.update(
     SESSION_COOKIE_SECURE=False,  # 开发环境可以设为False，生产环境应为True
     SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE='None',  # 或者 'None' 如果使用跨站
+    SESSION_COOKIE_SAMESITE='Lax',  # 或者 'None' 如果使用跨站
     PERMANENT_SESSION_LIFETIME=timedelta(days=1)  # 会话有效期
 )
 # 初始化 Flask-Login
@@ -79,7 +79,7 @@ def serve_react_app(path):
 # 用户加载函数
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, user_id)
 
 # 自定义未登录时的响应
 @login_manager.unauthorized_handler
@@ -133,6 +133,8 @@ def login():
     # 验证用户和密码
     if user and user.check_password(password):
         login_user(user)  # 登录用户
+        print({'message': 'Login successful', 'user_id': user.id,'username':username,
+            'is_frozen': False})
         return jsonify({'message': 'Login successful', 'user_id': user.id,'username':username,
             'is_frozen': False}), 200
 
