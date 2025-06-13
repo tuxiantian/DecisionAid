@@ -1,0 +1,53 @@
+{
+    "name": "买房决策清单",
+    "description": "买房决策清单",
+    "questions": [
+        {
+            "tempId": "temp-0",
+            "type": "choice",
+            "question": "买房",
+            "description": "买房",
+            "options": [
+                "自住",
+                "投资"
+            ],
+            "followUpQuestions": {
+                "0": [
+                    "temp-1"
+                ],
+                "1": [
+                    "temp-2"
+                ]
+            },
+            "parentTempId": null
+        },
+        {
+            "tempId": "temp-1",
+            "type": "text",
+            "question": "这里住着舒服吗？",
+            "description": "这里住着舒服吗？",
+            "options": [],
+            "followUpQuestions": {},
+            "parentTempId": "temp-0"
+        },
+        {
+            "tempId": "temp-2",
+            "type": "text",
+            "question": "这里有升值潜力吗？",
+            "description": "这里有升值潜力吗？",
+            "options": [],
+            "followUpQuestions": {},
+            "parentTempId": "temp-0"
+        },
+        {
+            "tempId": "temp-3",
+            "type": "text",
+            "question": "我能负担的起吗？",
+            "description": "我能负担的起吗？",
+            "options": [],
+            "followUpQuestions": {},
+            "parentTempId": null
+        }
+    ],
+    "mermaid_code": "{}"
+}

@@ -1,4 +1,5 @@
-from flask import Flask, abort, request, jsonify, Blueprint
+import json
+from flask import Flask, abort, request, jsonify, Blueprint, current_app
 from shared_models import Article, Checklist, DecisionGroup, GroupMembers, PlatformArticle, PlatformChecklist, PlatformChecklistQuestion, Review, User, db, ChecklistDecision, ChecklistAnswer, ChecklistQuestion
 from datetime import datetime as dt
 from sqlalchemy import func
@@ -115,20 +116,21 @@ def get_platform_checklists():
 @login_required
 def handle_clone_checklist():
     try:
-        # 获取请求中的 PlatformChecklist ID
+        # 获取请求数据
         data = request.get_json()
         platform_checklist_id = data.get('checklist_id')
-
         if not platform_checklist_id:
-            return jsonify({"error": "PlatformChecklist ID are required"}), 400
+            return jsonify({"error": "PlatformChecklist ID is required"}), 400
 
-        # 查找要克隆的 PlatformChecklist
+        # 查找源清单
         platform_checklist = PlatformChecklist.query.get(platform_checklist_id)
         if not platform_checklist:
             return jsonify({"error": "PlatformChecklist not found"}), 404
-        platform_checklist.clone_count+=1
+        
+        # 更新克隆计数
+        platform_checklist.clone_count += 1
 
-        # 克隆 PlatformChecklist 到 Checklist
+        # 创建新清单
         new_checklist = Checklist(
             version=platform_checklist.version,
             user_id=current_user.id,
@@ -140,61 +142,70 @@ def handle_clone_checklist():
             created_at=dt.utcnow()
         )
         db.session.add(new_checklist)
-        db.session.commit()  # 提交以获取新 Checklist 的 ID
+        db.session.flush()  # 立即获取新ID
 
-        # 查找并克隆关联的 PlatformChecklistQuestion 到 ChecklistQuestion
-        platform_questions = PlatformChecklistQuestion.query.filter_by(checklist_id=platform_checklist.id).all()
+        # 获取所有源问题并按层级排序（确保父问题先创建）
+        platform_questions = PlatformChecklistQuestion.query.filter_by(
+            checklist_id=platform_checklist.id
+        ).order_by(PlatformChecklistQuestion.parent_id.asc()).all()
+        
+        # ID映射表 { 原始ID: 新ID }
+        id_mapping = {}
+        
+        # 第一阶段：创建所有问题（不处理关联）
         for question in platform_questions:
             new_question = ChecklistQuestion(
                 checklist_id=new_checklist.id,
+                type=question.type,
                 question=question.question,
-                description=question.description
+                description=question.description,
+                options=question.options.copy() if question.options else None,
+                # follow_up_questions 和 parent_id 稍后处理
             )
             db.session.add(new_question)
+            db.session.flush()
+            id_mapping[question.id] = new_question.id
 
-        db.session.commit()  # 提交所有更改
+        # 第二阶段：处理关联关系
+        for question in platform_questions:
+            new_question_id = id_mapping[question.id]
+            
+            # 1. 处理父级引用
+            if question.parent_id and question.parent_id in id_mapping:
+                ChecklistQuestion.query.filter_by(id=new_question_id).update({
+                    'parent_id': id_mapping[question.parent_id]
+                })
+            
+            # 2. 处理 follow_up_questions 的ID映射
+            if question.follow_up_questions:
+                new_follow_ups = {}
+                for opt_index, child_ids in question.follow_up_questions.items():
+                    # 映射每个子问题的ID
+                    new_child_ids = [id_mapping[child_id] for child_id in child_ids 
+                                   if child_id in id_mapping]
+                    if new_child_ids:  # 只保留有效映射
+                        new_follow_ups[opt_index] = new_child_ids
+                
+                # 更新映射后的 follow_up_questions
+                if new_follow_ups:
+                    ChecklistQuestion.query.filter_by(id=new_question_id).update({
+                        'follow_up_questions': new_follow_ups
+                    })
 
-        return jsonify({"message": "Checklist and questions cloned successfully!", "id": new_checklist.id}), 200
+        db.session.commit()
+
+        return jsonify({
+            "message": "Checklist cloned with full hierarchy!",
+            "id": new_checklist.id,
+            "question_mapping": id_mapping  # 返回ID映射表（调试用）
+        }), 200
 
     except Exception as e:
-        print("Error:", str(e))
-        return jsonify({"error": "An error occurred while cloning the checklist"}), 500
+        db.session.rollback()
+        current_app.logger.error(f"Clone failed: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Cloning failed: {str(e)}"}), 500
 
-
-@checklist_bp.route('/checklists', methods=['POST'])
-@login_required
-def create_checklist():
-    data = request.get_json()
-    name = data.get('name')
-    mermaid_code = data.get('mermaid_code')
-    description = data.get('description')
-    questions = data.get('questions')
-
-    if not name or not questions:
-        return jsonify({'error': 'Checklist name and questions are required'}), 400
-
-    checklist = Checklist(user_id=current_user.id,is_clone=False,name=name,mermaid_code=mermaid_code, description=description, version=1)
-    db.session.add(checklist)
-    db.session.commit()
-
-    for item in questions:
-        question_text = item.get('question')
-        description_text = item.get('description', '')  # 默认为空字符串
-
-        # 检查问题内容是否有效
-        if not question_text:
-            return jsonify({'error': 'Each question must have text'}), 400
-
-        question = ChecklistQuestion(
-            checklist_id=checklist.id,
-            question=question_text,
-            description=description_text  # 将描述信息一起保存
-        )
-        db.session.add(question)
-
-    db.session.commit()
-    return jsonify({'message': 'Checklist created successfully', 'checklist_id': checklist.id}), 201
-
+  
 @checklist_bp.route('/checklists/<int:checklist_id>', methods=['GET'])
 @login_required
 def get_checklist_details(checklist_id):
@@ -222,7 +233,7 @@ def get_checklist_details(checklist_id):
 
     # 获取最新版本的 ChecklistQuestion
     questions = ChecklistQuestion.query.filter_by(checklist_id=latest_version.id).all()
-    questions_data = [{'id': question.id, 'question': question.question, 'description': question.description} for question in questions]
+    questions_data = [{'id': question.id,'type':question.type, 'question': question.question, 'description': question.description,'options': question.options,'follow_up_questions': question.follow_up_questions,'parent_id': question.parent_id} for question in questions]
 
     # 版本信息数据
     versions_data = [{'id': version.id, 'version': version.version} for version in versions]
@@ -355,7 +366,7 @@ def get_checklist_decision_details(decision_id):
 
     # 获取所有问题，并构造字典
     questions = ChecklistQuestion.query.filter_by(checklist_id=decision.checklist_id).all()
-    questions_dict = {question.id: question.question for question in questions}
+    questions_dict = {question.id: question for question in questions}
 
     # 获取决策组信息
     group = DecisionGroup.query.filter_by(checklist_decision_id=decision_id).first()
@@ -399,7 +410,7 @@ def get_checklist_decision_details(decision_id):
         'version': Checklist.query.get(decision.checklist_id).version,
         'created_at': decision.created_at,
         'final_decision': decision.final_decision,
-        'answers': [{'question': questions_dict[q_id], 'responses': responses} for q_id, responses in answers_data.items()],
+        'answers': [{'question': questions_dict[q_id].question,'type':questions_dict[q_id].type,'options':questions_dict[q_id].options, 'responses': responses} for q_id, responses in answers_data.items()],
         'has_group': has_group,
     }
 
@@ -439,56 +450,168 @@ def delete_checklist_decision(id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-    
+@checklist_bp.route('/checklists', methods=['POST'])
+@login_required
+def create_checklist():
+    data = request.get_json()
+    name = data.get('name')
+    mermaid_code = data.get('mermaid_code', '{}')  # 默认空对象
+    description = data.get('description', '')
+    questions = data.get('questions', [])
+
+    if not name:
+        return jsonify({'error': 'Checklist name is required'}), 400
+
+    checklist = Checklist(
+        user_id=current_user.id,
+        is_clone=False,
+        name=name,
+        mermaid_code=mermaid_code,
+        description=description,
+        version=1
+    )
+    db.session.add(checklist)
+    db.session.commit()
+
+    # 临时ID到真实ID的映射
+    id_mapping = {}
+    parent_mapping = {}  # 存储问题与其父问题的关系
+    # 第一遍：创建所有问题（不处理关系）
+    for item in questions:
+        question = ChecklistQuestion(
+            checklist_id=checklist.id,
+            type=item.get('type', 'text'),
+            question=item.get('question', ''),
+            description=item.get('description', ''),
+            options=item.get('options', []) if item.get('type') == 'choice' else None
+        )
+        db.session.add(question)
+        db.session.flush()  # 生成ID但不提交事务
+        
+        if 'tempId' in item:
+            id_mapping[item['tempId']] = question.id
+                # 记录父问题信息
+        if 'parentTempId' in item:
+            parent_mapping[question.id] = item['parentTempId']    
+
+    # 第二遍：建立层级关系
+    for question_id, parent_temp_id in parent_mapping.items():
+        if parent_temp_id in id_mapping:
+            question = ChecklistQuestion.query.get(question_id)
+            question.parent_id = id_mapping[parent_temp_id]
+            
+    # 第三遍：处理选择题的follow-up关系
+    for item in questions:
+        if item.get('type') != 'choice' or 'tempId' not in item:
+            continue
+            
+        question_id = id_mapping[item['tempId']]
+        question = ChecklistQuestion.query.get(question_id)
+        
+        # 处理follow-up问题
+        follow_ups = {}
+        for opt_index, follow_ids in item.get('followUpQuestions', {}).items():
+            if isinstance(follow_ids, list):  # 处理数组形式的follow-up IDs
+                follow_ups[opt_index] = [id_mapping[id] for id in follow_ids if id in id_mapping]
+            elif follow_ids in id_mapping:  # 处理单个ID的情况（向后兼容）
+                follow_ups[opt_index] = [id_mapping[follow_ids]]
+        
+        question.follow_up_questions = follow_ups if follow_ups else None
+
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Checklist created successfully',
+        'checklist_id': checklist.id,
+        'id_mapping': id_mapping
+    }), 201
+        
 @checklist_bp.route('/checklists/<int:id>', methods=['PUT'])
 @login_required
 def update_checklist(id):
     data = request.get_json()
     
-    # 查询 parent_id 等于参数 id 的最高版本
+    # Validate input
+    if not data.get('name'):
+        return jsonify({'error': 'Checklist name is required'}), 400
+
+    # Find latest version
     latest_checklist = Checklist.query.filter_by(parent_id=id).order_by(Checklist.version.desc()).first()
-    
-    # 如果找不到，使用当前的 id 对应的 checklist
     if latest_checklist is None:
         latest_checklist = Checklist.query.get(id)
-    
-    # 如果仍然没有找到，则返回 404
     if latest_checklist is None:
         abort(404, description="Checklist not found")
     if latest_checklist.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized access'}), 403
-    # 创建新版本的 checklist
+
+    # Create new version
     new_checklist = Checklist(
-        name=latest_checklist.name,
+        name=data.get('name'),
         description=data.get('description', latest_checklist.description),
-        mermaid_code=data.get('mermaid_code'),
-        user_id=latest_checklist.user_id,
+        mermaid_code=data.get('mermaid_code', latest_checklist.mermaid_code),
+        user_id=current_user.id,
         version=latest_checklist.version + 1,
-        parent_id=latest_checklist.parent_id or id  # 设置 parent_id 为最初的 checklist id
+        parent_id=latest_checklist.parent_id or id,
+        is_clone=False
     )
     db.session.add(new_checklist)
-    db.session.flush()  # 获取新 checklist 的 id
+    db.session.flush()
 
+    # Process questions
     questions = data.get('questions', [])
-    # 添加问题
+    id_mapping = {}  # tempId to real ID mapping
+    parent_mapping = {}  # child question ID to parent tempId
+
+    # First pass: create all questions
     for item in questions:
-        question_text = item.get('question')
-        description_text = item.get('description', '')  # 默认为空字符串
-
-        # 检查问题内容是否有效
-        if not question_text:
-            return jsonify({'error': 'Each question must have text'}), 400
-
         question = ChecklistQuestion(
             checklist_id=new_checklist.id,
-            question=question_text,
-            description=description_text  # 将描述信息一起保存
+            type=item.get('type', 'text'),
+            question=item.get('question', ''),
+            description=item.get('description', ''),
+            options=item.get('options', []) if item.get('type') == 'choice' else None
         )
         db.session.add(question)
+        db.session.flush()
+        
+        # 记录所有可能的ID映射关系
+        if 'tempId' in item:  # 新问题
+            id_mapping[str(item['tempId'])] = question.id
+        
+        # 记录父问题关系
+        if 'parentTempId' in item:
+            parent_mapping[question.id] = str(item['parentTempId'])
+
+    # Second pass: establish parent-child relationships
+    for question_id, parent_temp_id in parent_mapping.items():
+        if parent_temp_id in id_mapping:
+            question = ChecklistQuestion.query.get(question_id)
+            question.parent_id = id_mapping[parent_temp_id]
+
+    # Third pass: process follow-up questions for choice questions
+    for item in questions:
+        if item.get('type') != 'choice' or 'tempId' not in item:
+            continue
+            
+        question_id = id_mapping[item['tempId']]
+        question = ChecklistQuestion.query.get(question_id)
+        
+        follow_ups = {}
+        for opt_index, follow_ids in item.get('followUpQuestions', {}).items():
+            if isinstance(follow_ids, list):  # 处理数组形式的follow-up IDs
+                follow_ups[opt_index] = [id_mapping[str(id)] for id in follow_ids if str(id) in id_mapping]
+            elif follow_ids in id_mapping:  # 处理单个ID的情况（向后兼容）
+                follow_ups[opt_index] = [id_mapping[follow_ids]]
+        
+        question.follow_up_questions = follow_ups if follow_ups else None
 
     try:
         db.session.commit()
-        return jsonify({'message': 'Checklist updated successfully'}), 200
+        return jsonify({
+            'message': 'Checklist updated successfully',
+            'checklist_id': new_checklist.id,
+            'id_mapping': id_mapping
+        }), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -688,8 +811,7 @@ def get_checklist_questions(decision_id):
     decision = ChecklistDecision.query.get(decision_id)
     if not decision:
         return jsonify({"error": "Decision not found"}), 404
-    if decision.user_id != current_user.id:
-        return jsonify({'error': 'Unauthorized access'}), 403
+
     # 获取 checklist_id 对应的问题
     questions = ChecklistQuestion.query.filter_by(checklist_id=decision.checklist_id).all()
 
@@ -698,7 +820,11 @@ def get_checklist_questions(decision_id):
         {
             "id": question.id,
             "checklist_id": question.checklist_id,
+            "parent_id":question.parent_id,
             "question": question.question,
+            "type":question.type,
+            "options":question.options,
+            "follow_up_questions":question.follow_up_questions,
             "description": question.description  # 将 placeholder 替换为 description
         }
         for question in questions
@@ -709,8 +835,29 @@ def get_checklist_questions(decision_id):
 @checklist_bp.route('/checklist_answers/decision/<int:decision_id>', methods=['POST'])
 @login_required
 def answer_checklist_for_group(decision_id):
+    # 1. 获取决策信息
+    decision = ChecklistDecision.query.get(decision_id)
+    if not decision:
+        return jsonify({'error': 'Decision not found'}), 404
+    
+    # 2. 检查当前用户是否是被邀请用户
+    if current_user.id != decision.user_id:
+        # 3. 检查是否已经提交过答案
+        existing_answers = ChecklistAnswer.query.filter_by(
+            checklist_decision_id=decision_id,
+            user_id=current_user.id
+        ).first()
+        
+        if existing_answers:
+            return jsonify({
+                'error': '您已经提交过答案，不能重复提交'
+            }), 400
+    
     data = request.get_json()
     answers = data.get('answers')
+    # 5. 验证数据完整性
+    if not answers:
+        return jsonify({'error': 'No answers provided'}), 400
     for answer_data in answers:
         answer = ChecklistAnswer(
             checklist_decision_id=decision_id,

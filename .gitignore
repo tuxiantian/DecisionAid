@@ -6,3 +6,4 @@ cognitive_biases_translated.csv
 cognitive_biases_translated_v2.csv
 translate.py
 temp_diagrams
+logs/
