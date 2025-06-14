@@ -473,7 +473,8 @@ def create_checklist():
         # 检查名称冲突（带锁）
         existing = Checklist.query.filter(
             Checklist.name == name,
-            Checklist.user_id == current_user.id
+            Checklist.user_id == current_user.id,
+            version=1
         ).with_for_update().first()
         
         if existing:
