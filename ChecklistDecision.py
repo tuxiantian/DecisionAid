@@ -296,43 +296,47 @@ def save_checklist_answers():
     decision_name = data.get('decision_name')
     final_decision = data.get('final_decision')
     answers = data.get('answers')
-
-    checklist_decision = ChecklistDecision(
-        checklist_id=checklist_id,
-        user_id=current_user.id,
-        decision_name=decision_name,
-        final_decision=final_decision
-    )
-    db.session.add(checklist_decision)
-    db.session.commit()
-
-    for answer in answers:
-        question_id = answer.get('question_id')
-        answer_text = answer.get('answer')
-        referenced_articles = answer.get('referenced_articles', [])
-        referenced_platform_articles = answer.get('referenced_platform_articles', [])
-        if not question_id or not answer_text:
-            return jsonify({'error': 'Invalid answer data'}), 400
-
-        answer_record = ChecklistAnswer(
-            checklist_decision_id=checklist_decision.id,
+    try:
+        checklist_decision = ChecklistDecision(
+            checklist_id=checklist_id,
             user_id=current_user.id,
-            question_id=question_id,
-            answer=answer_text,
-            referenced_articles=','.join(map(str, referenced_articles)),
-            referenced_platform_articles=','.join(map(str, referenced_platform_articles))
+            decision_name=decision_name,
+            final_decision=final_decision
         )
-        db.session.add(answer_record)
-        # 增加引用文章的引用计数
-        for article_id in referenced_articles:
-            article = db.session.query(Article).filter_by(id=article_id).first()
-            if article:
-                article.reference_count += 1
-        for article_id in referenced_platform_articles:
-            article = db.session.query(PlatformArticle).filter_by(id=article_id).first()
-            if article:
-                article.reference_count += 1        
-    db.session.commit()
+        db.session.add(checklist_decision)
+        db.session.commit()
+
+        for answer in answers:
+            question_id = answer.get('question_id')
+            answer_text = answer.get('answer')
+            referenced_articles = answer.get('referenced_articles', [])
+            referenced_platform_articles = answer.get('referenced_platform_articles', [])
+            if not question_id or not answer_text:
+                return jsonify({'error': 'Invalid answer data'}), 400
+
+            answer_record = ChecklistAnswer(
+                checklist_decision_id=checklist_decision.id,
+                user_id=current_user.id,
+                question_id=question_id,
+                answer=answer_text,
+                referenced_articles=','.join(map(str, referenced_articles)),
+                referenced_platform_articles=','.join(map(str, referenced_platform_articles))
+            )
+            db.session.add(answer_record)
+            # 增加引用文章的引用计数
+            for article_id in referenced_articles:
+                article = db.session.query(Article).filter_by(id=article_id).first()
+                if article:
+                    article.reference_count += 1
+            for article_id in referenced_platform_articles:
+                article = db.session.query(PlatformArticle).filter_by(id=article_id).first()
+                if article:
+                    article.reference_count += 1        
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"save_checklist_answers failed: {str(e)}", exc_info=True)
+        return jsonify({"error": f"save checklist answers failed: {str(e)}"}), 500
     return jsonify({'message': 'Checklist answers saved successfully'}), 200
 
 @checklist_bp.route('/checklist_answers', methods=['GET'])
@@ -448,6 +452,7 @@ def delete_checklist_decision(id):
         return jsonify({'message': 'Decision, associated reviews, and answers deleted successfully'}), 200
     except Exception as e:
         db.session.rollback()
+        current_app.logger.error(f"Delete checklist decision failed: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @checklist_bp.route('/checklists', methods=['POST'])
@@ -461,65 +466,68 @@ def create_checklist():
 
     if not name:
         return jsonify({'error': 'Checklist name is required'}), 400
-
-    checklist = Checklist(
-        user_id=current_user.id,
-        is_clone=False,
-        name=name,
-        mermaid_code=mermaid_code,
-        description=description,
-        version=1
-    )
-    db.session.add(checklist)
-    db.session.commit()
-
-    # 临时ID到真实ID的映射
-    id_mapping = {}
-    parent_mapping = {}  # 存储问题与其父问题的关系
-    # 第一遍：创建所有问题（不处理关系）
-    for item in questions:
-        question = ChecklistQuestion(
-            checklist_id=checklist.id,
-            type=item.get('type', 'text'),
-            question=item.get('question', ''),
-            description=item.get('description', ''),
-            options=item.get('options', []) if item.get('type') == 'choice' else None
+    try:
+        checklist = Checklist(
+            user_id=current_user.id,
+            is_clone=False,
+            name=name,
+            mermaid_code=mermaid_code,
+            description=description,
+            version=1
         )
-        db.session.add(question)
-        db.session.flush()  # 生成ID但不提交事务
-        
-        if 'tempId' in item:
-            id_mapping[item['tempId']] = question.id
-                # 记录父问题信息
-        if 'parentTempId' in item:
-            parent_mapping[question.id] = item['parentTempId']    
+        db.session.add(checklist)
+        db.session.commit()
 
-    # 第二遍：建立层级关系
-    for question_id, parent_temp_id in parent_mapping.items():
-        if parent_temp_id in id_mapping:
+        # 临时ID到真实ID的映射
+        id_mapping = {}
+        parent_mapping = {}  # 存储问题与其父问题的关系
+        # 第一遍：创建所有问题（不处理关系）
+        for item in questions:
+            question = ChecklistQuestion(
+                checklist_id=checklist.id,
+                type=item.get('type', 'text'),
+                question=item.get('question', ''),
+                description=item.get('description', ''),
+                options=item.get('options', []) if item.get('type') == 'choice' else None
+            )
+            db.session.add(question)
+            db.session.flush()  # 生成ID但不提交事务
+            
+            if 'tempId' in item:
+                id_mapping[item['tempId']] = question.id
+                    # 记录父问题信息
+            if 'parentTempId' in item:
+                parent_mapping[question.id] = item['parentTempId']    
+
+        # 第二遍：建立层级关系
+        for question_id, parent_temp_id in parent_mapping.items():
+            if parent_temp_id in id_mapping:
+                question = ChecklistQuestion.query.get(question_id)
+                question.parent_id = id_mapping[parent_temp_id]
+                
+        # 第三遍：处理选择题的follow-up关系
+        for item in questions:
+            if item.get('type') != 'choice' or 'tempId' not in item:
+                continue
+                
+            question_id = id_mapping[item['tempId']]
             question = ChecklistQuestion.query.get(question_id)
-            question.parent_id = id_mapping[parent_temp_id]
             
-    # 第三遍：处理选择题的follow-up关系
-    for item in questions:
-        if item.get('type') != 'choice' or 'tempId' not in item:
-            continue
+            # 处理follow-up问题
+            follow_ups = {}
+            for opt_index, follow_ids in item.get('followUpQuestions', {}).items():
+                if isinstance(follow_ids, list):  # 处理数组形式的follow-up IDs
+                    follow_ups[opt_index] = [id_mapping[id] for id in follow_ids if id in id_mapping]
+                elif follow_ids in id_mapping:  # 处理单个ID的情况（向后兼容）
+                    follow_ups[opt_index] = [id_mapping[follow_ids]]
             
-        question_id = id_mapping[item['tempId']]
-        question = ChecklistQuestion.query.get(question_id)
-        
-        # 处理follow-up问题
-        follow_ups = {}
-        for opt_index, follow_ids in item.get('followUpQuestions', {}).items():
-            if isinstance(follow_ids, list):  # 处理数组形式的follow-up IDs
-                follow_ups[opt_index] = [id_mapping[id] for id in follow_ids if id in id_mapping]
-            elif follow_ids in id_mapping:  # 处理单个ID的情况（向后兼容）
-                follow_ups[opt_index] = [id_mapping[follow_ids]]
-        
-        question.follow_up_questions = follow_ups if follow_ups else None
+            question.follow_up_questions = follow_ups if follow_ups else None
 
-    db.session.commit()
-
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Checklist created failed: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Checklist created failed: {str(e)}"}), 500
     return jsonify({
         'message': 'Checklist created successfully',
         'checklist_id': checklist.id,
@@ -614,6 +622,7 @@ def update_checklist(id):
         }), 200
     except Exception as e:
         db.session.rollback()
+        current_app.logger.error(f"update checklist failed: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
  
     
