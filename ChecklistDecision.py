@@ -4,6 +4,8 @@ from shared_models import Article, Checklist, DecisionGroup, GroupMembers, Platf
 from datetime import datetime as dt
 from sqlalchemy import func
 from flask_login import current_user,login_required
+from sqlalchemy import text  # 添加这行导入
+
 
 
 checklist_bp = Blueprint('checklist', __name__)
@@ -460,13 +462,24 @@ def delete_checklist_decision(id):
 def create_checklist():
     data = request.get_json()
     name = data.get('name')
-    mermaid_code = data.get('mermaid_code', '{}')  # 默认空对象
+    mermaid_code = data.get('mermaid_code', '{}')
     description = data.get('description', '')
     questions = data.get('questions', [])
 
     if not name:
         return jsonify({'error': 'Checklist name is required'}), 400
+    
     try:
+        # 检查名称冲突（带锁）
+        existing = Checklist.query.filter(
+            Checklist.name == name,
+            Checklist.user_id == current_user.id
+        ).with_for_update().first()
+        
+        if existing:
+            return jsonify({'error': 'Checklist name already exists'}), 400
+
+        # 创建检查表主体
         checklist = Checklist(
             user_id=current_user.id,
             is_clone=False,
@@ -478,61 +491,111 @@ def create_checklist():
         db.session.add(checklist)
         db.session.commit()
 
-        # 临时ID到真实ID的映射
-        id_mapping = {}
-        parent_mapping = {}  # 存储问题与其父问题的关系
-        # 第一遍：创建所有问题（不处理关系）
-        for item in questions:
-            question = ChecklistQuestion(
-                checklist_id=checklist.id,
-                type=item.get('type', 'text'),
-                question=item.get('question', ''),
-                description=item.get('description', ''),
-                options=item.get('options', []) if item.get('type') == 'choice' else None
-            )
-            db.session.add(question)
-            db.session.flush()  # 生成ID但不提交事务
-            
-            if 'tempId' in item:
-                id_mapping[item['tempId']] = question.id
-                    # 记录父问题信息
-            if 'parentTempId' in item:
-                parent_mapping[question.id] = item['parentTempId']    
-
-        # 第二遍：建立层级关系
-        for question_id, parent_temp_id in parent_mapping.items():
-            if parent_temp_id in id_mapping:
-                question = ChecklistQuestion.query.get(question_id)
-                question.parent_id = id_mapping[parent_temp_id]
-                
-        # 第三遍：处理选择题的follow-up关系
-        for item in questions:
-            if item.get('type') != 'choice' or 'tempId' not in item:
-                continue
-                
-            question_id = id_mapping[item['tempId']]
-            question = ChecklistQuestion.query.get(question_id)
-            
-            # 处理follow-up问题
-            follow_ups = {}
-            for opt_index, follow_ids in item.get('followUpQuestions', {}).items():
-                if isinstance(follow_ids, list):  # 处理数组形式的follow-up IDs
-                    follow_ups[opt_index] = [id_mapping[id] for id in follow_ids if id in id_mapping]
-                elif follow_ids in id_mapping:  # 处理单个ID的情况（向后兼容）
-                    follow_ups[opt_index] = [id_mapping[follow_ids]]
-            
-            question.follow_up_questions = follow_ups if follow_ups else None
-
+        # 处理问题（独立事务）
+        try:
+            with db.session.begin_nested():
+                id_mapping = process_questions(checklist.id, questions)
+        except Exception as e:
+            current_app.logger.error(f"Question processing failed: {str(e)}", exc_info=True)
+            # 回滚问题创建，但保留检查表主体
+            raise
+        
         db.session.commit()
+        
+        return jsonify({
+            'message': 'Checklist created successfully',
+            'checklist_id': checklist.id,
+            'id_mapping': id_mapping
+        }), 201
+        
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Checklist created failed: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Checklist created failed: {str(e)}"}), 500
-    return jsonify({
-        'message': 'Checklist created successfully',
-        'checklist_id': checklist.id,
-        'id_mapping': id_mapping
-    }), 201
+        current_app.logger.error(f"Checklist creation failed: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Checklist creation failed: {str(e)}"}), 500
+
+def process_questions(checklist_id, questions):
+    if not questions:
+        return {}
+
+    # 准备批量插入数据
+    questions_to_create = []
+    id_mapping = {}  # tempId -> index
+    parent_mapping = {}  # index -> parentTempId
+    follow_up_data = {}  # tempId -> followUpQuestions
+
+    for idx, item in enumerate(questions):
+        question_data = {
+            'checklist_id': checklist_id,
+            'type': item.get('type', 'text'),
+            'question': item.get('question', ''),
+            'description': item.get('description', ''),
+            'options': item.get('options') if item.get('type') == 'choice' else None
+        }
+        questions_to_create.append(question_data)
+        
+        if 'tempId' in item:
+            id_mapping[item['tempId']] = idx
+        
+        if 'parentTempId' in item:
+            parent_mapping[idx] = item['parentTempId']
+        
+        if item.get('type') == 'choice' and 'followUpQuestions' in item:
+            follow_up_data[item['tempId']] = item['followUpQuestions']
+    
+    # 批量插入问题
+    db.session.bulk_insert_mappings(ChecklistQuestion, questions_to_create)
+    db.session.flush()
+    
+    # 获取批量生成的ID
+    first_id = db.session.execute(
+        text("SELECT LAST_INSERT_ID() ")
+    ).scalar()
+    question_ids = [first_id + i for i in range(len(questions_to_create))]
+    
+    # 构建真实ID映射
+    real_id_mapping = {}
+    for temp_id, idx in id_mapping.items():
+        real_id_mapping[temp_id] = question_ids[idx]
+    
+    # 更新父关系
+    parent_updates = []
+    for idx, parent_temp_id in parent_mapping.items():
+        if parent_temp_id in real_id_mapping:
+            parent_updates.append({
+                'id': question_ids[idx],
+                'parent_id': real_id_mapping[parent_temp_id]
+            })
+    
+    if parent_updates:
+        db.session.bulk_update_mappings(ChecklistQuestion, parent_updates)
+    
+    # 更新follow-up关系
+    follow_up_updates = []
+    for temp_id, follow_dict in follow_up_data.items():
+        if temp_id not in real_id_mapping:
+            continue
+            
+        question_id = real_id_mapping[temp_id]
+        processed_follow_ups = {}
+        
+        for opt_index, follow_ids in follow_dict.items():
+            if isinstance(follow_ids, list):
+                real_ids = [real_id_mapping[id] for id in follow_ids if id in real_id_mapping]
+                if real_ids:
+                    processed_follow_ups[opt_index] = real_ids
+            elif follow_ids in real_id_mapping:
+                processed_follow_ups[opt_index] = [real_id_mapping[follow_ids]]
+        
+        if processed_follow_ups:
+            follow_up_updates.append({
+                'id': question_id,
+                'follow_up_questions': processed_follow_ups
+            })
+    
+    if follow_up_updates:
+        db.session.bulk_update_mappings(ChecklistQuestion, follow_up_updates)
+    
+    return real_id_mapping
         
 @checklist_bp.route('/checklists/<int:id>', methods=['PUT'])
 @login_required
