@@ -526,6 +526,23 @@ def delete_checklist_decision(id):
         current_app.logger.error(f"Delete checklist decision failed: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
+def validate_question_count(questions, max_count=100):
+    """
+    验证问题数量是否超过限制
+    
+    :param questions: 问题列表
+    :param max_count: 最大允许数量，默认为100
+    :return: 如果超过限制返回错误响应，否则返回None
+    """
+    if len(questions) > max_count:
+        return jsonify({
+            'error': f'Too many questions (max {max_count})',
+            'message': f'Please limit your checklist to {max_count} questions',
+            'current_count': len(questions),
+            'max_allowed': max_count
+        }), 400
+    return None
+
 @checklist_bp.route('/checklists', methods=['POST'])
 @login_required
 def create_checklist():
@@ -537,7 +554,9 @@ def create_checklist():
 
     if not name:
         return jsonify({'error': 'Checklist name is required'}), 400
-    
+    # 验证问题数量
+    if error_response := validate_question_count(questions):
+        return error_response
     try:
         # 检查名称冲突（带锁）
         existing = Checklist.query.filter(
@@ -672,11 +691,13 @@ def process_questions(checklist_id, questions):
 @limiter_current_user.limit("10 per minute")  # 每个用户每分钟最多10次更新
 def update_checklist(id):
     data = request.get_json()
-    
+    questions = data.get('questions', [])
     # 输入验证
     if not data.get('name'):
         return jsonify({'error': 'Checklist name is required'}), 400
-
+    # 验证问题数量
+    if error_response := validate_question_count(questions):
+        return error_response
     try:
         # 第一阶段：查找最新版本（带锁避免并发更新）
         with db.session.begin_nested():
@@ -707,7 +728,6 @@ def update_checklist(id):
         db.session.commit()
 
         # 第二阶段：处理问题（独立事务）
-        questions = data.get('questions', [])
         if questions:
             try:
                 with db.session.begin_nested():
