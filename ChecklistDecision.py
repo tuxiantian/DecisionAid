@@ -5,7 +5,10 @@ from datetime import datetime as dt
 from sqlalchemy import func
 from flask_login import current_user,login_required
 from sqlalchemy import text  # 添加这行导入
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
+limiter = Limiter(key_func=get_remote_address)
 
 
 checklist_bp = Blueprint('checklist', __name__)
@@ -116,21 +119,25 @@ def get_platform_checklists():
 
 @checklist_bp.route('/checklists/clone', methods=['POST'])
 @login_required
+@limiter.limit("5 per minute")  # 每分钟最多5次克隆
 def handle_clone_checklist():
     try:
-        # 获取请求数据
         data = request.get_json()
         platform_checklist_id = data.get('checklist_id')
         if not platform_checklist_id:
             return jsonify({"error": "PlatformChecklist ID is required"}), 400
 
-        # 查找源清单
-        platform_checklist = PlatformChecklist.query.get(platform_checklist_id)
-        if not platform_checklist:
-            return jsonify({"error": "PlatformChecklist not found"}), 404
-        
-        # 更新克隆计数
-        platform_checklist.clone_count += 1
+        # 使用锁避免并发问题
+        with db.session.begin_nested():
+            platform_checklist = PlatformChecklist.query.filter_by(
+                id=platform_checklist_id
+            ).with_for_update().first()
+            
+            if not platform_checklist:
+                return jsonify({"error": "PlatformChecklist not found"}), 404
+            
+            # 更新克隆计数
+            platform_checklist.clone_count += 1
 
         # 创建新清单
         new_checklist = Checklist(
@@ -144,68 +151,129 @@ def handle_clone_checklist():
             created_at=dt.utcnow()
         )
         db.session.add(new_checklist)
-        db.session.flush()  # 立即获取新ID
+        db.session.commit()
 
-        # 获取所有源问题并按层级排序（确保父问题先创建）
+        # 获取所有源问题
         platform_questions = PlatformChecklistQuestion.query.filter_by(
             checklist_id=platform_checklist.id
-        ).order_by(PlatformChecklistQuestion.parent_id.asc()).all()
+        ).all()
         
-        # ID映射表 { 原始ID: 新ID }
-        id_mapping = {}
+        # 如果没有问题直接返回
+        if not platform_questions:
+            return jsonify({
+                "message": "Checklist cloned successfully",
+                "id": new_checklist.id,
+                "question_mapping": {}
+            }), 200
         
-        # 第一阶段：创建所有问题（不处理关联）
-        for question in platform_questions:
-            new_question = ChecklistQuestion(
-                checklist_id=new_checklist.id,
-                type=question.type,
-                question=question.question,
-                description=question.description,
-                options=question.options.copy() if question.options else None,
-                # follow_up_questions 和 parent_id 稍后处理
-            )
-            db.session.add(new_question)
-            db.session.flush()
-            id_mapping[question.id] = new_question.id
-
-        # 第二阶段：处理关联关系
-        for question in platform_questions:
-            new_question_id = id_mapping[question.id]
-            
-            # 1. 处理父级引用
-            if question.parent_id and question.parent_id in id_mapping:
-                ChecklistQuestion.query.filter_by(id=new_question_id).update({
-                    'parent_id': id_mapping[question.parent_id]
-                })
-            
-            # 2. 处理 follow_up_questions 的ID映射
-            if question.follow_up_questions:
-                new_follow_ups = {}
-                for opt_index, child_ids in question.follow_up_questions.items():
-                    # 映射每个子问题的ID
-                    new_child_ids = [id_mapping[child_id] for child_id in child_ids 
-                                   if child_id in id_mapping]
-                    if new_child_ids:  # 只保留有效映射
-                        new_follow_ups[opt_index] = new_child_ids
-                
-                # 更新映射后的 follow_up_questions
-                if new_follow_ups:
-                    ChecklistQuestion.query.filter_by(id=new_question_id).update({
-                        'follow_up_questions': new_follow_ups
-                    })
-
+        # 处理问题克隆（独立事务）
+        try:
+            with db.session.begin_nested():
+                id_mapping = clone_questions(new_checklist.id, platform_questions)
+        except Exception as e:
+            current_app.logger.error(f"Question cloning failed: {str(e)}", exc_info=True)
+            # 回滚问题创建，但保留检查表主体
+            raise
+        
         db.session.commit()
 
         return jsonify({
-            "message": "Checklist cloned with full hierarchy!",
+            "message": "Checklist cloned successfully",
             "id": new_checklist.id,
-            "question_mapping": id_mapping  # 返回ID映射表（调试用）
+            "question_mapping": id_mapping
         }), 200
 
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Clone failed: {str(e)}", exc_info=True)
         return jsonify({"error": f"Cloning failed: {str(e)}"}), 500
+
+def clone_questions(checklist_id, platform_questions):
+    # 准备批量插入数据
+    questions_to_create = []
+    id_mapping = {}  # 原始ID -> 新ID索引
+    parent_mapping = {}  # 新ID索引 -> 原始父ID
+    follow_up_mapping = {}  # 原始问题ID -> follow_up_questions
+
+    # 收集问题数据和关系
+    for question in platform_questions:
+        # 记录原始问题ID对应的索引位置
+        orig_id = question.id
+        idx = len(questions_to_create)
+        id_mapping[orig_id] = idx
+        
+        # 记录父关系（如果有）
+        if question.parent_id:
+            parent_mapping[idx] = question.parent_id
+        
+        # 记录follow_up关系（如果有）
+        if question.follow_up_questions:
+            follow_up_mapping[orig_id] = question.follow_up_questions
+        
+        # 准备问题数据
+        question_data = {
+            'checklist_id': checklist_id,
+            'type': question.type,
+            'question': question.question,
+            'description': question.description,
+            'options': question.options.copy() if question.options else None
+        }
+        questions_to_create.append(question_data)
+    
+    # 批量插入问题
+    db.session.bulk_insert_mappings(ChecklistQuestion, questions_to_create)
+    db.session.flush()
+    
+    # 获取批量生成的ID（MySQL版本）
+    result = db.session.execute(text("SELECT LAST_INSERT_ID()"))
+    first_id = result.scalar()
+    
+    # 计算所有生成的ID
+    question_ids = [first_id + i for i in range(len(questions_to_create))]
+    
+    # 构建真实ID映射 {原始ID: 新ID}
+    real_id_mapping = {}
+    for orig_id, idx in id_mapping.items():
+        real_id_mapping[orig_id] = question_ids[idx]
+    
+    # 批量更新父关系
+    parent_updates = []
+    for idx, parent_orig_id in parent_mapping.items():
+        if parent_orig_id in real_id_mapping:
+            parent_updates.append({
+                'id': question_ids[idx],
+                'parent_id': real_id_mapping[parent_orig_id]
+            })
+    
+    if parent_updates:
+        db.session.bulk_update_mappings(ChecklistQuestion, parent_updates)
+    
+    # 批量更新follow-up关系
+    follow_up_updates = []
+    for orig_id, follow_dict in follow_up_mapping.items():
+        if orig_id not in real_id_mapping:
+            continue
+            
+        new_question_id = real_id_mapping[orig_id]
+        processed_follow_ups = {}
+        
+        for opt_index, child_ids in follow_dict.items():
+            # 映射每个子问题的ID
+            new_child_ids = [real_id_mapping[child_id] for child_id in child_ids 
+                           if child_id in real_id_mapping]
+            if new_child_ids:
+                processed_follow_ups[opt_index] = new_child_ids
+        
+        if processed_follow_ups:
+            follow_up_updates.append({
+                'id': new_question_id,
+                'follow_up_questions': processed_follow_ups
+            })
+    
+    if follow_up_updates:
+        db.session.bulk_update_mappings(ChecklistQuestion, follow_up_updates)
+    
+    return real_id_mapping
 
   
 @checklist_bp.route('/checklists/<int:checklist_id>', methods=['GET'])
