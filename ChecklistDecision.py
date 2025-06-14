@@ -9,6 +9,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 limiter = Limiter(key_func=get_remote_address)
+limiter_current_user = Limiter(key_func=lambda: f"user_{current_user.id}")
 
 
 checklist_bp = Blueprint('checklist', __name__)
@@ -542,7 +543,7 @@ def create_checklist():
         existing = Checklist.query.filter(
             Checklist.name == name,
             Checklist.user_id == current_user.id,
-            version=1
+            Checklist.version == 1
         ).with_for_update().first()
         
         if existing:
@@ -603,13 +604,13 @@ def process_questions(checklist_id, questions):
         questions_to_create.append(question_data)
         
         if 'tempId' in item:
-            id_mapping[item['tempId']] = idx
+            id_mapping[str(item['tempId'])] = idx
         
         if 'parentTempId' in item:
-            parent_mapping[idx] = item['parentTempId']
+            parent_mapping[idx] = str(item['parentTempId'])
         
         if item.get('type') == 'choice' and 'followUpQuestions' in item:
-            follow_up_data[item['tempId']] = item['followUpQuestions']
+            follow_up_data[str(item['tempId'])] = item['followUpQuestions']
     
     # 批量插入问题
     db.session.bulk_insert_mappings(ChecklistQuestion, questions_to_create)
@@ -649,7 +650,7 @@ def process_questions(checklist_id, questions):
         
         for opt_index, follow_ids in follow_dict.items():
             if isinstance(follow_ids, list):
-                real_ids = [real_id_mapping[id] for id in follow_ids if id in real_id_mapping]
+                real_ids = [real_id_mapping[str(id)] for id in follow_ids if str(id) in real_id_mapping]
                 if real_ids:
                     processed_follow_ups[opt_index] = real_ids
             elif follow_ids in real_id_mapping:
@@ -668,90 +669,64 @@ def process_questions(checklist_id, questions):
         
 @checklist_bp.route('/checklists/<int:id>', methods=['PUT'])
 @login_required
+@limiter_current_user.limit("10 per minute")  # 每个用户每分钟最多10次更新
 def update_checklist(id):
     data = request.get_json()
     
-    # Validate input
+    # 输入验证
     if not data.get('name'):
         return jsonify({'error': 'Checklist name is required'}), 400
 
-    # Find latest version
-    latest_checklist = Checklist.query.filter_by(parent_id=id).order_by(Checklist.version.desc()).first()
-    if latest_checklist is None:
-        latest_checklist = Checklist.query.get(id)
-    if latest_checklist is None:
-        abort(404, description="Checklist not found")
-    if latest_checklist.user_id != current_user.id:
-        return jsonify({'error': 'Unauthorized access'}), 403
-
-    # Create new version
-    new_checklist = Checklist(
-        name=data.get('name'),
-        description=data.get('description', latest_checklist.description),
-        mermaid_code=data.get('mermaid_code', latest_checklist.mermaid_code),
-        user_id=current_user.id,
-        version=latest_checklist.version + 1,
-        parent_id=latest_checklist.parent_id or id,
-        is_clone=False
-    )
-    db.session.add(new_checklist)
-    db.session.flush()
-
-    # Process questions
-    questions = data.get('questions', [])
-    id_mapping = {}  # tempId to real ID mapping
-    parent_mapping = {}  # child question ID to parent tempId
-
-    # First pass: create all questions
-    for item in questions:
-        question = ChecklistQuestion(
-            checklist_id=new_checklist.id,
-            type=item.get('type', 'text'),
-            question=item.get('question', ''),
-            description=item.get('description', ''),
-            options=item.get('options', []) if item.get('type') == 'choice' else None
-        )
-        db.session.add(question)
-        db.session.flush()
-        
-        # 记录所有可能的ID映射关系
-        if 'tempId' in item:  # 新问题
-            id_mapping[str(item['tempId'])] = question.id
-        
-        # 记录父问题关系
-        if 'parentTempId' in item:
-            parent_mapping[question.id] = str(item['parentTempId'])
-
-    # Second pass: establish parent-child relationships
-    for question_id, parent_temp_id in parent_mapping.items():
-        if parent_temp_id in id_mapping:
-            question = ChecklistQuestion.query.get(question_id)
-            question.parent_id = id_mapping[parent_temp_id]
-
-    # Third pass: process follow-up questions for choice questions
-    for item in questions:
-        if item.get('type') != 'choice' or 'tempId' not in item:
-            continue
-            
-        question_id = id_mapping[item['tempId']]
-        question = ChecklistQuestion.query.get(question_id)
-        
-        follow_ups = {}
-        for opt_index, follow_ids in item.get('followUpQuestions', {}).items():
-            if isinstance(follow_ids, list):  # 处理数组形式的follow-up IDs
-                follow_ups[opt_index] = [id_mapping[str(id)] for id in follow_ids if str(id) in id_mapping]
-            elif follow_ids in id_mapping:  # 处理单个ID的情况（向后兼容）
-                follow_ups[opt_index] = [id_mapping[follow_ids]]
-        
-        question.follow_up_questions = follow_ups if follow_ups else None
-
     try:
+        # 第一阶段：查找最新版本（带锁避免并发更新）
+        with db.session.begin_nested():
+            # 获取最新版本（带锁）
+            latest_checklist = Checklist.query.filter_by(parent_id=id).order_by(Checklist.version.desc()).first()
+            if latest_checklist is None:
+                latest_checklist = Checklist.query.filter_by(id=id).with_for_update().first()
+            
+            if latest_checklist is None:
+                abort(404, description="Checklist not found")
+            if latest_checklist.user_id != current_user.id:
+                return jsonify({'error': 'Unauthorized access'}), 403
+
+            # 创建新版本
+            new_checklist = Checklist(
+                name=data.get('name'),
+                description=data.get('description', latest_checklist.description),
+                mermaid_code=data.get('mermaid_code', latest_checklist.mermaid_code),
+                user_id=current_user.id,
+                version=latest_checklist.version + 1,
+                parent_id=latest_checklist.parent_id or id,
+                is_clone=False
+            )
+            db.session.add(new_checklist)
+            db.session.flush()  # 获取新ID但不提交
+
+        # 提交第一阶段事务（包含查找和创建新检查表）
         db.session.commit()
+
+        # 第二阶段：处理问题（独立事务）
+        questions = data.get('questions', [])
+        if questions:
+            try:
+                with db.session.begin_nested():
+                    id_mapping = process_questions(new_checklist.id, questions)
+            except Exception as e:
+                current_app.logger.error(f"Question processing failed: {str(e)}", exc_info=True)
+                # 回滚问题创建，但保留检查表主体
+                raise
+        else:
+            id_mapping = {}
+
+        db.session.commit()
+        
         return jsonify({
             'message': 'Checklist updated successfully',
             'checklist_id': new_checklist.id,
             'id_mapping': id_mapping
         }), 200
+        
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"update checklist failed: {str(e)}", exc_info=True)
