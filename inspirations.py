@@ -19,6 +19,7 @@ def get_random_inspirations():
             'id': item.id,
             'type': item.type,
             'content': item.content,
+            'description': item.description,
             'created_at': item.created_at.isoformat()
         } for item in random_inspirations]
         
@@ -37,7 +38,10 @@ def get_inspirations():
     search = request.args.get('search')
     query = Inspiration.query
     if search:
-        query = query.filter(Inspiration.content.ilike(f"%{search}%"))
+        query = query.filter(db.or_(
+                Inspiration.content.ilike(f"%{search}%"),
+                Inspiration.description.ilike(f"%{search}%")
+            ))
     pagination = query.order_by(
         Inspiration.updated_at.desc()
     ).paginate(page=page, per_page=per_page, error_out=False)
@@ -46,6 +50,7 @@ def get_inspirations():
         'id': item.id,
         'type': item.type,
         'content': item.content,
+        'description': item.description,
         'created_at': item.created_at.isoformat(),
         'updated_at': item.updated_at.isoformat()
     } for item in pagination.items]
