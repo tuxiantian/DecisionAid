@@ -244,6 +244,7 @@ class ChecklistDecision(db.Model):
     checklist_id = db.Column(db.Integer, db.ForeignKey('checklist.id'), nullable=False)
     user_id = db.Column(db.Integer,db.ForeignKey('user.id'), nullable=False)
     decision_name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=True)
     final_decision = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=dt.utcnow)
 

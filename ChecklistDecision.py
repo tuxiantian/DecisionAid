@@ -359,12 +359,16 @@ def get_platform_checklist_details(checklist_id):
         'versions': versions_data
     }), 200
 
+"""
+做决定
+"""
 @checklist_bp.route('/save_checklist_answers', methods=['POST'])
 @login_required
 def save_checklist_answers():
     data = request.get_json()
     checklist_id = data.get('checklist_id')
     decision_name = data.get('decision_name')
+    description = data.get('description')
     final_decision = data.get('final_decision')
     answers = data.get('answers')
     try:
@@ -372,6 +376,7 @@ def save_checklist_answers():
             checklist_id=checklist_id,
             user_id=current_user.id,
             decision_name=decision_name,
+            description = description,
             final_decision=final_decision
         )
         db.session.add(checklist_decision)
@@ -482,6 +487,7 @@ def get_checklist_decision_details(decision_id):
     # 构建决策详情返回数据
     decision_details = {
         'decision_name': decision.decision_name,
+        'description':decision.description,
         'version': Checklist.query.get(decision.checklist_id).version,
         'created_at': decision.created_at,
         'final_decision': decision.final_decision,
@@ -915,7 +921,7 @@ def join_decision_group(group_id):
 
     # 检查用户是否已经是该组成员
     if current_user in decision_group.members:
-        return jsonify({'message': 'User is already a member of this group'}), 400
+        return jsonify({'message': 'User is already a member of this group'}), 200
 
     # 将用户加入到该决策组
     decision_group.members.append(current_user)
@@ -936,6 +942,7 @@ def get_decision_group_details(group_id):
         'decision_id':decision.id,
         'group_name': decision_group.name,
         'decision_name': decision.decision_name if decision else 'Unknown Decision',
+        'description': decision.description if decision else 'Unknown',
         'inviter_username': inviter.username if inviter else 'Unknown'
     }
 
