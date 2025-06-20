@@ -839,6 +839,7 @@ def delete_checklist_with_children(checklist_id):
 
     except Exception as e:
         db.session.rollback()
+        current_app.logger.error(f"Checklist delete failed: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
