@@ -25,6 +25,7 @@ def get_checklists():
         Checklist.id,
         Checklist.name,
         Checklist.description,
+        Checklist.share_status,
         Checklist.version,
         func.count(ChecklistDecision.id).label('decision_count')  # 统计决定数量
     ).outerjoin(ChecklistDecision, ChecklistDecision.checklist_id == Checklist.id)  # 使用外连接避免漏掉没有决定的清单
@@ -42,6 +43,7 @@ def get_checklists():
             'id': checklist.id,
             'name': checklist.name,
             'description': checklist.description,
+            'share_status':checklist.share_status,
             'version': checklist.version,
             'can_update': True,
             'decision_count': checklist.decision_count,  # 使用从查询中获取的决定数量
@@ -53,6 +55,7 @@ def get_checklists():
             Checklist.id,
             Checklist.version,
             Checklist.description,
+            Checklist.share_status,
             func.count(ChecklistDecision.id).label('decision_count')  # 统计子版本的决定数量
         ).outerjoin(ChecklistDecision, ChecklistDecision.checklist_id == Checklist.id)
         child_checklists = child_checklists.filter(Checklist.parent_id == checklist.id).group_by(Checklist.id).all()
@@ -63,6 +66,7 @@ def get_checklists():
                 'id': child.id,
                 'version': child.version,
                 'description': child.description,
+                'share_status':child.share_status,
                 'can_update': False,
                 'decision_count': child.decision_count  # 子版本的决定数量
             })
@@ -276,7 +280,30 @@ def clone_questions(checklist_id, platform_questions):
     
     return real_id_mapping
 
-  
+@checklist_bp.route('/checklists/<int:checklist_id>/share', methods=['POST'])
+@login_required
+def request_share_checklist(checklist_id):
+    try:
+        with db.session.begin_nested():
+            checklist = Checklist.query.filter_by(
+                id=checklist_id,
+                user_id=current_user.id,
+                share_status='pending'  # 只能分享待分享状态的清单
+            ).with_for_update().first()
+            
+            if not checklist:
+                return jsonify({"error": "Checklist not found or not shareable"}), 404
+            
+            checklist.share_status = 'review'
+            checklist.share_requested_at = dt.utcnow()
+        
+        db.session.commit()
+        return jsonify({"message": "Checklist submitted for review"}), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Share request failed: {str(e)}", exc_info=True)
+        return jsonify({"error": "Share request failed"}), 500
+      
 @checklist_bp.route('/checklists/<int:checklist_id>', methods=['GET'])
 @login_required
 def get_checklist_details(checklist_id):

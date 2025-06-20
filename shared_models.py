@@ -191,6 +191,12 @@ class Checklist(db.Model):
     is_clone = db.Column(db.Boolean, nullable=True)
     platform_checklist_id = db.Column(db.Integer, db.ForeignKey('platform_checklist.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=dt.utcnow)
+    share_status = db.Column(db.Enum('pending', 'review', 'approved', 'rejected', 
+                                  name='checklist_share_status'),
+                           default='pending', nullable=False)
+    share_requested_at = db.Column(db.DateTime)
+    reviewed_at = db.Column(db.DateTime)
+    review_comment = db.Column(db.Text)
 
 class PlatformChecklist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
