@@ -851,15 +851,17 @@ def delete_checklist_with_children(checklist_id):
     if checklist.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized access'}), 403    
     try:
-        # 找到所有相关的子版本
-        all_versions = Checklist.query.filter(
-            (Checklist.parent_id == checklist_id) | (Checklist.id == checklist_id)
-        ).all()
-
-        for version in all_versions:
-            # 删除关联的 ChecklistQuestion、ChecklistAnswer、ChecklistDecision 和 Review 数据
-            delete_related_data(version.id)
-            db.session.delete(version)
+        # 先找到所有子版本(不包含父版本)
+        child_versions = Checklist.query.filter_by(parent_id=checklist_id).all()
+        
+        # 先删除所有子版本及其关联数据
+        for child in child_versions:
+            delete_related_data(child.id)
+            db.session.delete(child)
+        
+        # 再删除父版本及其关联数据
+        delete_related_data(checklist_id)
+        db.session.delete(checklist)
 
         db.session.commit()
         return jsonify({'message': 'Parent checklist and all related versions deleted successfully.'}), 200
