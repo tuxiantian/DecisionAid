@@ -303,10 +303,37 @@ def request_share_checklist(checklist_id):
         db.session.rollback()
         current_app.logger.error(f"Share request failed: {str(e)}", exc_info=True)
         return jsonify({"error": "Share request failed"}), 500
-      
+
 @checklist_bp.route('/checklists/<int:checklist_id>', methods=['GET'])
 @login_required
 def get_checklist_details(checklist_id):
+    """
+    获取指定 Checklist 的详细信息。
+    入参 checklist_id 是具体要获取的 Checklist ID。
+    """
+
+    # 获取当前 checklist 或返回 404
+    checklist = Checklist.query.get_or_404(checklist_id)
+    if not current_user.id==checklist.user_id:
+        return jsonify({'error': 'You are not allowed to access this Checklist'}), 403
+
+    # 获取最新版本的 ChecklistQuestion
+    questions = ChecklistQuestion.query.filter_by(checklist_id=checklist_id).all()
+    questions_data = [{'id': question.id,'type':question.type, 'question': question.question, 'description': question.description,'options': question.options,'follow_up_questions': question.follow_up_questions,'parent_id': question.parent_id} for question in questions]
+
+
+    return jsonify({
+        'id': checklist.id,
+        'name': checklist.name,
+        'mermaid_code': checklist.mermaid_code,
+        'description': checklist.description,
+        'version': checklist.version,
+        'questions': questions_data
+    }), 200
+          
+@checklist_bp.route('/checklists/latest/<int:checklist_id>', methods=['GET'])
+@login_required
+def get_latest_checklist_details(checklist_id):
     """
     获取最新 Checklist 的详细信息。
     入参 checklist_id 是父版本的 Checklist ID，此接口会自动获取最新版本的数据。
@@ -349,6 +376,30 @@ def get_checklist_details(checklist_id):
 @checklist_bp.route('/platform_checklists/<int:checklist_id>', methods=['GET'])
 def get_platform_checklist_details(checklist_id):
     """
+    获取指定 Checklist 的详细信息。
+    入参 checklist_id 是具体要获取的 Checklist ID。
+    """
+
+    # 获取当前 checklist 或返回 404
+    checklist = PlatformChecklist.query.get_or_404(checklist_id)
+
+    # 获取最新版本的 ChecklistQuestion
+    questions = PlatformChecklistQuestion.query.filter_by(checklist_id=checklist.id).all()
+    questions_data = [{'id': question.id, 'question': question.question, 'description': question.description} for question in questions]
+
+
+    return jsonify({
+        'id': checklist.id,
+        'name': checklist.name,
+        'mermaid_code': checklist.mermaid_code,
+        'description': checklist.description,
+        'version': checklist.version,
+        'questions': questions_data
+    }), 200
+
+@checklist_bp.route('/platform_checklists/latest/<int:checklist_id>', methods=['GET'])
+def get_latest_platform_checklist_details(checklist_id):
+    """
     获取最新 Checklist 的详细信息。
     入参 checklist_id 是父版本的 Checklist ID，此接口会自动获取最新版本的数据。
     """
@@ -385,8 +436,7 @@ def get_platform_checklist_details(checklist_id):
         'questions': questions_data,
         'versions': versions_data
     }), 200
-
-
+    
 @checklist_bp.route('/save_checklist_answers', methods=['POST'])
 @login_required
 def save_checklist_answers():
