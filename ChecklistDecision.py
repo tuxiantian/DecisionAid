@@ -386,12 +386,14 @@ def get_platform_checklist_details(checklist_id):
         'versions': versions_data
     }), 200
 
-"""
-做决定
-"""
+
 @checklist_bp.route('/save_checklist_answers', methods=['POST'])
 @login_required
 def save_checklist_answers():
+    """
+    做决定
+    """
+    
     data = request.get_json()
     checklist_id = data.get('checklist_id')
     decision_name = data.get('decision_name')
@@ -785,7 +787,87 @@ def update_checklist(id):
         current_app.logger.error(f"update checklist failed: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
  
+@checklist_bp.route('/checklists/<int:id>/edit', methods=['PATCH'])
+@login_required
+@limiter_current_user.limit("5 per minute")  # 每个用户每分钟最多10次更新
+def edit_checklist(id):
+    data = request.get_json()
     
+    # 输入验证
+    if not data.get('name'):
+        return jsonify({'error': 'Checklist name is required'}), 400
+    
+    try:
+        # 获取要编辑的清单（带锁避免并发更新）
+        with db.session.begin_nested():
+            checklist = Checklist.query.filter_by(id=id).with_for_update().first()
+            
+            if checklist is None:
+                abort(404, description="Checklist not found")
+            if checklist.user_id != current_user.id:
+                return jsonify({'error': 'Unauthorized access'}), 403
+
+            # 更新基础信息
+            checklist.name = data.get('name', checklist.name)
+            checklist.description = data.get('description', checklist.description)
+            checklist.mermaid_code = data.get('mermaid_code', checklist.mermaid_code)
+            
+            # 更新问题内容
+            questions = data.get('questions', [])
+            if questions:
+                update_existing_questions(checklist.id, questions)
+            
+            db.session.add(checklist)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Checklist updated successfully',
+            'checklist_id': checklist.id
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Edit checklist failed: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+def update_existing_questions(checklist_id, questions_data):
+    """更新现有问题内容，不改变问题结构"""
+    # 构建问题ID到数据的映射
+    question_updates = {}
+    for q in questions_data:
+        if 'id' in q:  # 确保只处理有ID的现有问题
+            question_updates[q['id']] = {
+                'question': q.get('question'),
+                'description': q.get('description'),
+                'options': q.get('options') if q.get('type') == 'choice' else None
+            }
+    
+    if not question_updates:
+        return
+    
+    # 获取所有需要更新的问题
+    existing_questions = ChecklistQuestion.query.filter(
+        ChecklistQuestion.checklist_id == checklist_id,
+        ChecklistQuestion.id.in_(question_updates.keys())
+    ).all()
+    
+    # 逐个更新问题
+    for question in existing_questions:
+        update_data = question_updates.get(question.id)
+        if update_data:
+            question.question = update_data['question'] or question.question
+            question.description = update_data['description'] or question.description
+            
+            # 只更新选项内容，不改变选项结构
+            if question.type == 'choice' and update_data['options']:
+                # 确保选项数量不变，只更新文本
+                if len(update_data['options']) == len(question.options or []):
+                    question.options = update_data['options']
+            
+            db.session.add(question)
+
+                
 @checklist_bp.route('/reviews', methods=['POST'])
 @login_required
 def create_review():
