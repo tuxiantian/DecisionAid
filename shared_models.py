@@ -130,6 +130,8 @@ class DecisionGroup(db.Model):
 class GroupMembers(db.Model):
     group_id = db.Column(db.Integer, db.ForeignKey('decision_group.id'), primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
+    role = db.Column(db.String(20), nullable=False)  # 'inviter' 或 'invitee'
+
 
 # 定义BalancedDecision模型
 class BalancedDecision(db.Model):
@@ -253,6 +255,8 @@ class ChecklistDecision(db.Model):
     description = db.Column(db.Text, nullable=True)
     final_decision = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=dt.utcnow)
+    user = db.relationship('User', backref='checklist_decisions')
+
 
 
 # Review 数据模型

@@ -524,6 +524,49 @@ def get_user_checklist_answers():
         'current_page': checklist_decisions.page,
         'total_items': checklist_decisions.total}), 200
 
+@checklist_bp.route('/invited_checklist_decisions', methods=['GET'])
+@login_required
+def get_invited_checklist_decisions():
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 10, type=int)
+    
+    # Query for checklist decisions where current user is an invitee in a decision group
+    invited_decisions = ChecklistDecision.query.join(
+        DecisionGroup,
+        DecisionGroup.checklist_decision_id == ChecklistDecision.id
+    ).join(
+        GroupMembers,
+        GroupMembers.group_id == DecisionGroup.id
+    ).join(
+        User,  # Add join with User table for owner info
+        ChecklistDecision.user_id == User.id
+    ).filter(
+        GroupMembers.user_id == current_user.id,
+        GroupMembers.role == 'invitee'
+    ).order_by(
+        ChecklistDecision.created_at.desc()
+    ).paginate(page=page, per_page=page_size, error_out=False)
+    
+    invited_list = []
+    for decision in invited_decisions:
+        checklist = Checklist.query.get(decision.checklist_id)
+        invited_list.append({
+            'decision_id': decision.id,
+            'decision_name': decision.decision_name,
+            'description': decision.description,
+            'created_at': decision.created_at,
+            'version': checklist.version if checklist else None,
+            'owner_id': decision.user_id,
+            'owner_username': decision.user.username
+        })
+    
+    return jsonify({
+        'invitedChecklistDecisions': invited_list,
+        'total_pages': invited_decisions.pages,
+        'current_page': invited_decisions.page,
+        'total_items': invited_decisions.total
+    }), 200
+    
 @checklist_bp.route('/checklist_answers/details/<int:decision_id>', methods=['GET'])
 @login_required
 def get_checklist_decision_details(decision_id):
@@ -594,6 +637,75 @@ def get_checklist_decision_details(decision_id):
 
     return jsonify(decision_details), 200
 
+@checklist_bp.route('/invited_checklist_answers/details/<int:decision_id>', methods=['GET'])
+@login_required
+def get_invited_checklist_decision_details(decision_id):
+    # Verify the current user is actually invited to this decision
+    is_invited = GroupMembers.query.join(
+        DecisionGroup,
+        DecisionGroup.id == GroupMembers.group_id
+    ).filter(
+        DecisionGroup.checklist_decision_id == decision_id,
+        GroupMembers.user_id == current_user.id,
+        GroupMembers.role == 'invitee'
+    ).first()
+
+    if not is_invited:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    # Get the decision
+    decision = ChecklistDecision.query.get_or_404(decision_id)
+    
+    # Get all questions for the checklist
+    questions = ChecklistQuestion.query.filter_by(checklist_id=decision.checklist_id).all()
+    questions_dict = {question.id: question for question in questions}
+
+    # Initialize answer structure
+    answers_data = {}
+
+    # Get only the current user's answers
+    answers = ChecklistAnswer.query.filter_by(
+        checklist_decision_id=decision.id,
+        user_id=current_user.id
+    ).all()
+
+    for answer in answers:
+        # Process referenced articles
+        referenced_article_ids = answer.referenced_articles.split(',') if answer.referenced_articles else []
+        referenced_platform_article_ids = answer.referenced_platform_articles.split(',') if answer.referenced_platform_articles else []
+        
+        referenced_articles_data = []
+        if referenced_article_ids:
+            referenced_articles = Article.query.filter(Article.id.in_(referenced_article_ids)).all()
+            referenced_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_articles]
+
+        referenced_platform_articles_data = []
+        if referenced_platform_article_ids:
+            referenced_platform_articles = PlatformArticle.query.filter(PlatformArticle.id.in_(referenced_platform_article_ids)).all()
+            referenced_platform_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_platform_articles]
+
+        # Store the answer data
+        answers_data[answer.question_id] = {
+            'answer': answer.answer,
+            'referenced_articles': referenced_articles_data,
+            'referenced_platform_articles': referenced_platform_articles_data
+        }
+
+    # Build response
+    decision_details = {
+        'decision_name': decision.decision_name,
+        'description': decision.description,
+        'owner_id': decision.user_id,
+        'owner_username': decision.user.username,
+        'answers': [{
+            'question': questions_dict[q_id].question,
+            'type': questions_dict[q_id].type,
+            'options': questions_dict[q_id].options,
+            'response': answers_data.get(q_id, None)  # Only the user's answer
+        } for q_id in questions_dict.keys()]
+    }
+
+    return jsonify(decision_details), 200
 
 @checklist_bp.route('/checklist_answers/<int:id>', methods=['DELETE'])
 @login_required
@@ -1094,6 +1206,14 @@ def create_decision_group():
         checklist_decision_id=checklist_decision_id
     )
     db.session.add(decision_group)
+    db.session.flush()
+
+    # 创建者作为 inviter 加入
+    db.session.add(GroupMembers(
+        group_id=decision_group.id,
+        user_id=current_user.id,
+        role='inviter'  # 明确标记创建者身份
+    ))
     db.session.commit()
 
     return jsonify({'message': 'Decision group created successfully', 'group_id': decision_group.id}), 201
@@ -1115,19 +1235,37 @@ def get_decision_group_members(group_id):
 @checklist_bp.route('/join-group/<int:group_id>', methods=['POST'])
 @login_required
 def join_decision_group(group_id):
-    # 检查决策组是否存在
+    # 1. 检查决策组是否存在
     decision_group = DecisionGroup.query.get_or_404(group_id)
-
-    # 检查用户是否已经是该组成员
-    if current_user in decision_group.members:
+    if not decision_group:
+        return jsonify({'message': 'this decision group is not exists'}), 400
+    # 2. 检查用户是否已是成员（避免重复加入）
+    existing_member = db.session.query(
+        GroupMembers.query.filter_by(
+            group_id=group_id,
+            user_id=current_user.id
+        ).exists()
+    ).scalar()
+    
+    if existing_member:
         return jsonify({'message': 'User is already a member of this group'}), 200
 
-    # 将用户加入到该决策组
-    decision_group.members.append(current_user)
-    db.session.commit()
-
-    return jsonify({'message': 'User successfully joined the decision group'}), 200
-
+    # 3. 添加用户到组，并明确标记为被邀请者（invitee）
+    try:
+        # 方式1：直接操作关联表（推荐）
+        db.session.add(GroupMembers(
+            group_id=group_id,
+            user_id=current_user.id,
+            role='invitee'  # 明确角色
+        ))
+        
+        db.session.commit()
+        return jsonify({'message': 'User joined as invitee successfully'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+   
 @checklist_bp.route('/decision_groups/<int:group_id>/details', methods=['GET'])
 @login_required
 def get_decision_group_details(group_id):
