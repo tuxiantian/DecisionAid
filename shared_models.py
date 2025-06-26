@@ -261,6 +261,7 @@ class Review(db.Model):
     decision_id = db.Column(db.Integer, db.ForeignKey('checklist_decision.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     referenced_articles = db.Column(db.String(255))  # 保存引用的文章 ID，多个用逗号分隔
+    referenced_platform_articles = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=dt.utcnow)
 
 class Feedback(db.Model):

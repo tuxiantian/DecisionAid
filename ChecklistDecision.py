@@ -925,6 +925,7 @@ def create_review():
     decision_id = data.get('decision_id')
     content = data.get('content')
     referenced_articles = data.get('referenced_articles', [])
+    referenced_platform_articles = data.get('referenced_platform_articles', [])
 
     if not decision_id or not content:
         return jsonify({'error': 'Invalid review data'}), 400
@@ -932,7 +933,8 @@ def create_review():
     review = Review(
         decision_id=decision_id,
         content=content,
-        referenced_articles=','.join(map(str, referenced_articles))
+        referenced_articles=','.join(map(str, referenced_articles)),
+        referenced_platform_articles=','.join(map(str, referenced_platform_articles))
     )
     db.session.add(review)
 
@@ -941,6 +943,10 @@ def create_review():
         article = db.session.query(Article).filter_by(id=article_id).first()
         if article:
             article.reference_count += 1
+    for article_id in referenced_articles:
+        article = db.session.query(PlatformArticle).filter_by(id=article_id).first()
+        if article:
+            article.reference_count += 1        
 
     db.session.commit()
     return jsonify({'message': 'Review created successfully', 'review': review.id}), 201
@@ -953,17 +959,26 @@ def get_reviews(decision_id):
 
     for review in reviews:
         # 获取引用的文章 ID 列表
-        referenced_article_ids = [int(id) for id in review.referenced_articles.split(',') if id.isdigit()]
+        referenced_article_ids = []
+        if review.referenced_articles:
+            referenced_article_ids = [int(id) for id in review.referenced_articles.split(',') if id.isdigit()]
+        referenced_platform_article_ids = []
+        if review.referenced_platform_articles:
+            referenced_platform_article_ids = [int(id) for id in review.referenced_platform_articles.split(',') if id.isdigit()]
+
 
         # 查询引用的文章
-        referenced_articles = Article.query.filter(Article.id.in_(referenced_article_ids)).all()
+        referenced_articles = Article.query.filter(Article.id.in_(referenced_article_ids)).all() if referenced_article_ids else []
+        referenced_platform_articles = PlatformArticle.query.filter(PlatformArticle.id.in_(referenced_platform_article_ids)).all()  if referenced_platform_article_ids else []
 
         # 构造引用文章的 ID 和标题
         referenced_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_articles]
+        referenced_platform_articles_data = [{'id': article.id, 'title': article.title} for article in referenced_platform_articles]
 
         reviews_data.append({
             'content': review.content,
             'referenced_articles': referenced_articles_data,
+            'referenced_platform_articles':referenced_platform_articles_data,
             'created_at': review.created_at
         })
 
