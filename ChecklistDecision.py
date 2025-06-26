@@ -930,26 +930,39 @@ def create_review():
     if not decision_id or not content:
         return jsonify({'error': 'Invalid review data'}), 400
 
-    review = Review(
-        decision_id=decision_id,
-        content=content,
-        referenced_articles=','.join(map(str, referenced_articles)),
-        referenced_platform_articles=','.join(map(str, referenced_platform_articles))
-    )
-    db.session.add(review)
+    try:
+        # 创建Review记录
+        review = Review(
+            decision_id=decision_id,
+            content=content,
+            referenced_articles=','.join(map(str, referenced_articles)),
+            referenced_platform_articles=','.join(map(str, referenced_platform_articles))
+        )
+        db.session.add(review)
 
-    # 增加引用文章的引用计数
-    for article_id in referenced_articles:
-        article = db.session.query(Article).filter_by(id=article_id).first()
-        if article:
-            article.reference_count += 1
-    for article_id in referenced_articles:
-        article = db.session.query(PlatformArticle).filter_by(id=article_id).first()
-        if article:
-            article.reference_count += 1        
+        # 原子更新引用计数（方案1）
+        if referenced_articles:
+            db.session.query(Article).filter(
+                Article.id.in_(referenced_articles)
+            ).update(
+                {'reference_count': Article.reference_count + 1},
+                synchronize_session=False
+            )
+        
+        if referenced_platform_articles:
+            db.session.query(PlatformArticle).filter(
+                PlatformArticle.id.in_(referenced_platform_articles)
+            ).update(
+                {'reference_count': PlatformArticle.reference_count + 1},
+                synchronize_session=False
+            )
 
-    db.session.commit()
-    return jsonify({'message': 'Review created successfully', 'review': review.id}), 201
+        db.session.commit()
+        return jsonify({'message': 'Review created successfully', 'review_id': review.id}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 @checklist_bp.route('/reviews/<int:decision_id>', methods=['GET'])
 @login_required
