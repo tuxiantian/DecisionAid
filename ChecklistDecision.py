@@ -479,14 +479,23 @@ def save_checklist_answers():
             )
             db.session.add(answer_record)
             # 增加引用文章的引用计数
-            for article_id in referenced_articles:
-                article = db.session.query(Article).filter_by(id=article_id).first()
-                if article:
-                    article.reference_count += 1
-            for article_id in referenced_platform_articles:
-                article = db.session.query(PlatformArticle).filter_by(id=article_id).first()
-                if article:
-                    article.reference_count += 1        
+            # 批量原子更新引用计数
+            if referenced_articles:
+                db.session.query(Article).filter(
+                    Article.id.in_(referenced_articles)
+                ).update(
+                    {"reference_count": Article.reference_count + 1},
+                    synchronize_session=False
+                )
+
+            if referenced_platform_articles:
+                db.session.query(PlatformArticle).filter(
+                    PlatformArticle.id.in_(referenced_platform_articles)
+                ).update(
+                    {"reference_count": PlatformArticle.reference_count + 1},
+                    synchronize_session=False
+                )       
+        
         db.session.commit()
     except Exception as e:
         db.session.rollback()
