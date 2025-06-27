@@ -108,13 +108,11 @@ def get_platform_articles():
 @article_bp.route('/articles/<int:id>', methods=['GET'])
 @login_required
 def get_article(id):
-    print(f"Current User: {current_user}, Is Authenticated: {current_user.is_authenticated}")
+    #print(f"Current User: {current_user}, Is Authenticated: {current_user.is_authenticated}")
     article = Article.query.get(id)
     if not article:
         return jsonify({'error': 'Article not found'}), 404
 
-    if not article.user_id==current_user.id:
-        return jsonify({'error': 'You are not allowed to access this Article'}), 403
     
     result = {
         'id': article.id,
