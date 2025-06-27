@@ -1339,13 +1339,32 @@ def answer_checklist_for_group(decision_id):
     if not answers:
         return jsonify({'error': 'No answers provided'}), 400
     for answer_data in answers:
+        referenced_articles=answer_data.get('referenced_articles', [])
+        referenced_platform_articles=answer_data.get('referenced_platform_articles', [])
         answer = ChecklistAnswer(
             checklist_decision_id=decision_id,
             question_id=answer_data['question_id'],
             user_id=current_user.id,  # 当前用户
             answer=answer_data['answer'],
-            referenced_articles=','.join(map(str, answer_data.get('referenced_articles', [])))
+            referenced_articles=','.join(map(str, referenced_articles)),
+            referenced_platform_articles=','.join(map(str, referenced_platform_articles))
         )
+        # 原子更新引用计数
+        if referenced_articles:
+            db.session.query(Article).filter(
+                Article.id.in_(referenced_articles)
+            ).update(
+                {'reference_count': Article.reference_count + 1},
+                synchronize_session=False
+            )
+        
+        if referenced_platform_articles:
+            db.session.query(PlatformArticle).filter(
+                PlatformArticle.id.in_(referenced_platform_articles)
+            ).update(
+                {'reference_count': PlatformArticle.reference_count + 1},
+                synchronize_session=False
+            )
         db.session.add(answer)
     db.session.commit()
     return jsonify({'message': 'Answers submitted successfully'}), 200
