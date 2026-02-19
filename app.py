@@ -13,6 +13,7 @@ from logic_errors import logic_errors_bp
 from feedback import feedback_bp
 from inspirations import inspiration_bp
 from reflections import reflections_bp
+from MinimaxRegret import mininmax_regret_bp
 import pymysql
 from shared_models import User,FreezeRecord, db
 from datetime import datetime as dt, timedelta
@@ -83,6 +84,7 @@ app.register_blueprint(logic_errors_bp)
 app.register_blueprint(feedback_bp)
 app.register_blueprint(inspiration_bp)
 app.register_blueprint(reflections_bp)
+app.register_blueprint(mininmax_regret_bp)
 
 
 # 加载 RSA 私钥

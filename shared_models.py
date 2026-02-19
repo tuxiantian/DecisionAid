@@ -1,8 +1,12 @@
 from datetime import datetime as dt
+from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import JSON
 from flask_login import UserMixin # type: ignore
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import Integer, String, Float, DateTime, ForeignKey, JSON, Text
+from sqlalchemy.orm import relationship
+
 
 db = SQLAlchemy()
 
@@ -75,7 +79,84 @@ class FreezeRecord(db.Model):
     # 关系
     user = db.relationship('User', back_populates='freeze_records', foreign_keys=[user_id])
     admin = db.relationship('AdminUser', foreign_keys=[admin_id])
+
+class DecisionModel( db.Model):
+    """决策模型主表"""
+    __tablename__ = 'decision_models'
     
+    id =  db.Column(Integer, primary_key=True, autoincrement=True)
+    name =  db.Column(String(100), nullable=False)
+    description =  db.Column(Text)
+    created_at =  db.Column(DateTime, default=datetime.utcnow)
+    updated_at =  db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关联
+    alternatives = relationship("Alternative", back_populates="model", cascade="all, delete-orphan")
+    scenarios = relationship("Scenario", back_populates="model", cascade="all, delete-orphan")
+    payoffs = relationship("Payoff", back_populates="model", cascade="all, delete-orphan")
+    results = relationship("DecisionResult", back_populates="model", uselist=False, cascade="all, delete-orphan")
+
+class Alternative( db.Model):
+    """备选方案表"""
+    __tablename__ = 'alternatives'
+    
+    id =  db.Column(Integer, primary_key=True, autoincrement=True)
+    model_id =  db.Column(Integer, ForeignKey('decision_models.id', ondelete='CASCADE'))
+    name =  db.Column(String(100), nullable=False)
+    description =  db.Column(Text)
+    order_index =  db.Column(Integer, default=0)
+    
+    # 关联
+    model = relationship("DecisionModel", back_populates="alternatives")
+    payoffs = relationship("Payoff", back_populates="alternative", cascade="all, delete-orphan")
+
+class Scenario( db.Model):
+    """情景状态表"""
+    __tablename__ = 'scenarios'
+    
+    id =  db.Column(Integer, primary_key=True, autoincrement=True)
+    model_id =  db.Column(Integer, ForeignKey('decision_models.id', ondelete='CASCADE'))
+    name =  db.Column(String(100), nullable=False)
+    description =  db.Column(Text)
+    probability =  db.Column(Float)  # 可选，如果有概率信息
+    order_index =  db.Column(Integer, default=0)
+    
+    # 关联
+    model = relationship("DecisionModel", back_populates="scenarios")
+    payoffs = relationship("Payoff", back_populates="scenario", cascade="all, delete-orphan")
+
+class Payoff( db.Model):
+    """收益表"""
+    __tablename__ = 'payoffs'
+    
+    id =  db.Column(Integer, primary_key=True, autoincrement=True)
+    model_id =  db.Column(Integer, ForeignKey('decision_models.id', ondelete='CASCADE'))
+    alternative_id =  db.Column(Integer, ForeignKey('alternatives.id', ondelete='CASCADE'))
+    scenario_id =  db.Column(Integer, ForeignKey('scenarios.id', ondelete='CASCADE'))
+    value =  db.Column(Float, nullable=False)  # 收益值
+    
+    # 关联
+    model = relationship("DecisionModel", back_populates="payoffs")
+    alternative = relationship("Alternative", back_populates="payoffs")
+    scenario = relationship("Scenario", back_populates="payoffs")
+
+class DecisionResult( db.Model):
+    """决策结果表"""
+    __tablename__ = 'decision_results'
+    
+    id =  db.Column(Integer, primary_key=True, autoincrement=True)
+    model_id =  db.Column(Integer, ForeignKey('decision_models.id', ondelete='CASCADE'), unique=True)
+    regret_matrix =  db.Column(JSON)  # 遗憾矩阵
+    max_regrets =  db.Column(JSON)    # 各方案的最大遗憾值
+    best_alternative_id =  db.Column(Integer, ForeignKey('alternatives.id'))
+    best_alternative_name =  db.Column(String(100))
+    min_max_regret =  db.Column(Float)  # 最小最大遗憾值
+    created_at =  db.Column(DateTime, default=datetime.utcnow)
+    
+    # 关联
+    model = relationship("DecisionModel", back_populates="results")
+    best_alternative = relationship("Alternative")
+        
 # 定义逻辑错误模型
 class LogicError(db.Model):
     __tablename__ = 'logic_errors'
