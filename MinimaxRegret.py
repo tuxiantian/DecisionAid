@@ -1,9 +1,157 @@
-from flask import Flask, request, jsonify, Blueprint
+from flask import Flask, request, jsonify, send_file, make_response, Blueprint
 from shared_models import DecisionModel,Alternative,Scenario,Payoff,DecisionResult, db
 from services.decision_service import MinimaxRegretService
+from services.pdf_service import PDFService
+from datetime import datetime
+from urllib.parse import quote
+import io
+pdf_service = PDFService()
 
 mininmax_regret_bp = Blueprint('mininmax_regret', __name__)
 
+def rfc5987_encode(filename):
+    return "filename*=utf-8''{}".format(quote(filename, safe=''))
+
+@mininmax_regret_bp.route('/api/models/<int:model_id>/export-pdf', methods=['GET'])
+def export_model_pdf(model_id):
+    """导出决策模型为PDF报告"""
+    db_session = db.session
+    
+    # 获取模型数据
+    model = db_session.query(DecisionModel).filter(DecisionModel.id == model_id).first()
+    if not model:
+        return jsonify({'error': 'Model not found'}), 404
+    
+    # 获取方案
+    alternatives = db_session.query(Alternative).filter(
+        Alternative.model_id == model_id
+    ).order_by(Alternative.order_index).all()
+    
+    # 获取情景
+    scenarios = db_session.query(Scenario).filter(
+        Scenario.model_id == model_id
+    ).order_by(Scenario.order_index).all()
+    
+    # 获取收益矩阵
+    payoff_matrix = []
+    for alt in alternatives:
+        row = []
+        for scen in scenarios:
+            payoff = db_session.query(Payoff).filter(
+                Payoff.model_id == model_id,
+                Payoff.alternative_id == alt.id,
+                Payoff.scenario_id == scen.id
+            ).first()
+            row.append(payoff.value if payoff else 0)
+        payoff_matrix.append(row)
+    
+    # 获取分析结果
+    result = db_session.query(DecisionResult).filter(DecisionResult.model_id == model_id).first()
+    
+    # 构建模型数据字典
+    model_data = {
+        'id': model.id,
+        'name': model.name,
+        'description': model.description,
+        'created_at': model.created_at.strftime('%Y-%m-%d %H:%M:%S') if model.created_at else None,
+        'alternatives': [{'id': a.id, 'name': a.name, 'description': a.description} for a in alternatives],
+        'scenarios': [{'id': s.id, 'name': s.name, 'description': s.description, 'probability': s.probability} for s in scenarios],
+        'payoff_matrix': payoff_matrix
+    }
+    
+    if result:
+        model_data['result'] = {
+            'id': result.id,
+            'regret_matrix': result.regret_matrix,
+            'max_regrets': result.max_regrets,
+            'best_alternative_id': result.best_alternative_id,
+            'best_alternative_name': result.best_alternative_name,
+            'min_max_regret': float(result.min_max_regret),
+            'created_at': result.created_at.strftime('%Y-%m-%d %H:%M:%S') if result.created_at else None
+        }
+    
+    try:
+        # 生成PDF
+        pdf_bytes = pdf_service.generate_decision_report(model_data)
+        
+        # 创建文件名
+        filename = f"决策报告_{model.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        # 返回PDF文件
+        filename_encoded = rfc5987_encode(filename)
+        
+        response = make_response(send_file(
+            io.BytesIO(pdf_bytes),
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename_encoded
+        ))
+
+        response.headers['Content-Disposition'] = f"attachment; {filename_encoded}"
+        return response
+    except Exception as e:
+        print(f"PDF生成失败: {e}")
+        return jsonify({'error': f'PDF generation failed: {str(e)}'}), 500
+
+@mininmax_regret_bp.route('/api/models/<int:model_id>/export-simple-pdf', methods=['GET'])
+def export_simple_pdf(model_id):
+    """导出简洁版PDF报告"""
+    db_session = db.session
+    
+    model = db_session.query(DecisionModel).filter(DecisionModel.id == model_id).first()
+    if not model:
+        return jsonify({'error': 'Model not found'}), 404
+    
+    alternatives = db_session.query(Alternative).filter(Alternative.model_id == model_id).all()
+    scenarios = db_session.query(Scenario).filter(Scenario.model_id == model_id).all()
+    result = db_session.query(DecisionResult).filter(DecisionResult.model_id == model_id).first()
+    
+    payoff_matrix = []
+    for alt in alternatives:
+        row = []
+        for scen in scenarios:
+            payoff = db_session.query(Payoff).filter(
+                Payoff.model_id == model_id,
+                Payoff.alternative_id == alt.id,
+                Payoff.scenario_id == scen.id
+            ).first()
+            row.append(payoff.value if payoff else 0)
+        payoff_matrix.append(row)
+    
+    model_data = {
+        'name': model.name,
+        'alternatives': [{'name': a.name} for a in alternatives],
+        'scenarios': [{'name': s.name, 'probability': s.probability} for s in scenarios],
+        'payoff_matrix': payoff_matrix
+    }
+    
+    if result:
+        model_data['result'] = {
+            'regret_matrix': result.regret_matrix,
+            'max_regrets': result.max_regrets,
+            'best_alternative_name': result.best_alternative_name,
+            'min_max_regret': float(result.min_max_regret)
+        }
+    
+    try:
+        pdf_bytes = pdf_service.generate_simple_report(model_data)
+        filename = f"决策摘要_{model.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        filename_encoded = rfc5987_encode(filename)
+        
+        response = make_response(send_file(
+            io.BytesIO(pdf_bytes),
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename_encoded
+        ))
+
+        response.headers['Content-Disposition'] = f"attachment; {filename_encoded}"
+        return response
+        
+    except Exception as e:
+        return jsonify({'error': f'PDF generation failed: {str(e)}'}), 500
+    
 # 获取所有决策模型列表
 @mininmax_regret_bp.route('/api/models', methods=['GET'])
 def get_all_models():

@@ -28,7 +28,7 @@ import logging
 pymysql.install_as_MySQLdb()
 
 app = Flask(__name__, static_folder='build', template_folder='build')
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": "http://localhost:3000"}})
+CORS(app,expose_headers=['Content-Disposition', 'Content-Type'], supports_credentials=True, resources={r"/*": {"origins": "http://localhost:3000"}})
 app.config.update(
     SESSION_COOKIE_SECURE=False,  # 开发环境可以设为False，生产环境应为True
     SESSION_COOKIE_HTTPONLY=True,
